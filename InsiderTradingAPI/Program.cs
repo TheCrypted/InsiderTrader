@@ -380,6 +380,59 @@ static (decimal Min, decimal Max) ToRangeUSD(string? s)
     return (0m, 0m);
 }
 
+app.MapPost("/simulate-trade/{bioGuideId}/{ticker}", 
+    async (string bioGuideId, string ticker, int count, AppDbContext db) => {
+        // default to 10 if caller doesn't pass ?count=
+        if (count <= 0) count = 4;
+
+        var pol = await db.Politicians.FindAsync(bioGuideId);
+        var fullName = pol?.fullName ?? "(Unknown)";
+
+        // Some example SEC-like amount buckets since your model stores tradeAmount as string
+        string[] buckets =
+        {
+            "$1,001 - $15,000",
+            "$15,001 - $50,000",
+            "$50,001 - $100,000",
+            "$100,001 - $250,000",
+            "$250,001 - $500,000",
+            "$500,001 - $1,000,000"
+        };
+
+        var rnd = Random.Shared;
+        DateTime today = DateTime.UtcNow;
+
+        var newTrades = Enumerable.Range(0, count).Select(_ =>
+        {
+            // random tradedAt within last 180 days, disclosure a few days later
+            var tradedAt = today.AddDays(-rnd.Next(31, 180));
+            var disclosure = tradedAt.AddDays(rnd.Next(1, 30));
+
+            return new Trade(
+                tradeId: Guid.NewGuid(),
+                bioGuideId: bioGuideId,
+                fullName: fullName,
+                ticker: ticker.ToUpperInvariant(),
+                tradedAt: tradedAt.ToString("yyyy-MM-dd"),
+                disclosureDate: disclosure.ToString("yyyy-MM-dd"),
+                tradeType: rnd.Next(2) == 0 ? "Purchase" : "Sale",
+                tradeAmount: buckets[rnd.Next(buckets.Length)]
+            );
+        }).ToList();
+
+        db.Trades.AddRange(newTrades);
+        await db.SaveChangesAsync();
+
+        return Results.Created(
+            $"/trades?bioGuideId={bioGuideId}&ticker={ticker}",
+            new
+            {
+                created = newTrades.Count,
+                bioGuideId,
+                ticker = ticker.ToUpperInvariant()
+            });
+});
+
 app.Run();
 
 public record CongressionalTradeLiveResponse(
