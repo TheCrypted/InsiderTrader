@@ -20,7 +20,7 @@ var summaries = new[] {
 };
 
 app.MapGet("/test", () => {
-    return "hello world";
+    return "hello world!";
 });
 
 app.Run();
