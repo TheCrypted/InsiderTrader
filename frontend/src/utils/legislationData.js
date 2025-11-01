@@ -1,4 +1,5 @@
 // Extended legislation data with stocks, congressmen, and trading activity
+import { getBillRelevantStocks } from './api';
 
 export const legislationDetails = {
   'H.R.1234': {
@@ -288,8 +289,90 @@ export const legislationDetails = {
   }
 };
 
-// Default legislation data
-export const getLegislationDetails = (billId) => {
-  return legislationDetails[billId] || legislationDetails['H.R.1234'];
+// Default legislation data - async function that fetches from API with fallback to mock
+export const getLegislationDetails = async (billId) => {
+  // First, try to get data from graphBills (most reliable source)
+  const { graphBills } = await import('./graphData');
+  const graphBill = graphBills.find(b => b.id === billId);
+  
+  // Get base legislation data - prefer graphBills, then mock data
+  let baseLegislation;
+  if (graphBill) {
+    // Use graphBill data as base
+    baseLegislation = {
+      id: billId,
+      title: graphBill.title,
+      summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
+      sponsor: `Sponsor of ${billId}`,
+      status: graphBill.status || 'Pending',
+      cosponsors: graphBill.cosponsors || 0,
+      committees: graphBill.committees || [],
+      date: graphBill.date || new Date().toISOString().split('T')[0],
+      sector: graphBill.sector,
+      // Add default market data
+      yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
+      noPrice: graphBill.cosponsors > 40 ? 0.35 : graphBill.cosponsors > 25 ? 0.55 : 0.70,
+      volume24h: 0,
+      liquidity: 0,
+      marketCap: 0,
+      resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      resolutionCriteria: 'This market resolves based on bill passage.',
+      billUrl: `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+      question: `Will ${billId} pass Congress?`,
+      affectedStocks: [],
+      supportingCongressmen: [],
+      activitySummary: {
+        totalTrades: 0,
+        suspiciousTrades: 0,
+        totalVolume: '$0',
+        averageExcessReturn: 0
+      },
+      aiSummary: null,
+    };
+  } else {
+    // Fallback to legislationDetails mock data
+    baseLegislation = legislationDetails[billId] || {
+      ...legislationDetails['H.R.1234'],
+      id: billId,
+      title: `${billId} - Legislation`,
+    };
+  }
+  
+  // Try to fetch relevant stocks from model API (with shorter timeout for faster page load)
+  // This is non-blocking - page will show immediately, stocks load in background
+  try {
+    const relevantStocks = await getBillRelevantStocks(billId, 3000); // 3 second timeout
+    
+    // If we got stocks from API, merge them with the base data
+    if (relevantStocks && relevantStocks.length > 0) {
+      return {
+        ...baseLegislation,
+        id: billId,
+        affectedStocks: relevantStocks.map((stock, idx) => ({
+          ...stock,
+          // Preserve any existing relevance or add default
+          relevance: stock.relevance || `This stock is affected by ${baseLegislation.title || 'this legislation'}.`,
+        })),
+      };
+    }
+    
+    // If API returned empty results, use base legislation with existing/stub stocks
+    return {
+      ...baseLegislation,
+      id: billId,
+      // Ensure affectedStocks exists even if empty
+      affectedStocks: baseLegislation.affectedStocks || [],
+    };
+  } catch (error) {
+    console.error(`Error fetching legislation details for ${billId} from model API, using base data:`, error);
+    // Return base legislation on error (from graphBills or mock)
+    return {
+      ...baseLegislation,
+      id: billId,
+      // Ensure affectedStocks exists even if empty
+      affectedStocks: baseLegislation.affectedStocks || [],
+    };
+  }
 };
+
 

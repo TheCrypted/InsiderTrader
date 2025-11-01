@@ -21,7 +21,7 @@ import json
 # =========================
 # Config
 # =========================
-CONGRESS = 117
+CONGRESS = 119
 MODEL_NAME = "all-mpnet-base-v2"
 
 # Optional precomputed artifacts (company embeddings, company texts, companies df)
@@ -269,7 +269,8 @@ def get_crs_summary(bill_type: str, bill_number: int) -> Optional[str]:
     api_key = CONGRESS_API_KEY
     if not api_key:
         return None
-    url = f"https://api.congress.gov/v3/bill/{CONGRESS}/{bill_type.lower()}/{bill_number}/summaries"
+    normalized_type = normalize_bill_type(bill_type)
+    url = f"https://api.congress.gov/v3/bill/{CONGRESS}/{normalized_type}/{bill_number}/summaries"
     r = _get(url, params={"api_key": api_key, "format": "json", "limit": 50})
     data = r.json()
 
@@ -334,10 +335,36 @@ def keyword_prior_scores(comp_texts: List[str], term_weights: dict, cap: float =
 # =========================
 # Fetch newest bill (by your priority), clean, chunk
 # =========================
+def normalize_bill_type(bill_type: str) -> str:
+    """
+    Convert bill type to Congress API format (lowercase).
+    Handles: H/HR -> hr, S -> s, HJRES -> hjres, etc.
+    """
+    bill_type_upper = bill_type.upper().strip()
+    # Map common formats to Congress API format
+    bill_type_map = {
+        'H': 'hr',
+        'HR': 'hr',
+        'S': 's',
+        'HJRES': 'hjres',
+        'SJRES': 'sjres',
+        'HCONRES': 'hconres',
+        'SCONRES': 'sconres',
+        'HRES': 'hres',
+        'SRES': 'sres',
+    }
+    # If already lowercase and in map, return it
+    if bill_type_upper in bill_type_map:
+        return bill_type_map[bill_type_upper]
+    # If it's already in correct format (lowercase), return as is
+    return bill_type.lower()
+
+
 def fetch_clean_and_chunk(bill_type: str, bill_number: int) -> Tuple[str, str, List[str], str]:
     if not CONGRESS_API_KEY:
         raise RuntimeError("Congress API key missing.")
-    endpoint = f"https://api.congress.gov/v3/bill/{CONGRESS}/{bill_type.lower()}/{bill_number}/text"
+    normalized_type = normalize_bill_type(bill_type)
+    endpoint = f"https://api.congress.gov/v3/bill/{CONGRESS}/{normalized_type}/{bill_number}/text"
     resp = _get(endpoint, params={"api_key": CONGRESS_API_KEY, "format": "json", "limit": 250})
     data = resp.json()
     versions = data.get("textVersions", []) or []
@@ -497,11 +524,17 @@ def recent_bills():
     # Normalize a compact payload
     results = []
     for b in items:
-        t = (b.get("type") or "").upper()
+        t = b.get("type") or ""  # This comes as "hr", "s", etc. from Congress API (lowercase)
         n = str(b.get("number") or "").strip()
         la = b.get("latestAction") or {}
+        
+        # Normalize bill type for bill_id format (HR.1234, S.567, etc.)
+        # normalize_bill_type handles the conversion (hr -> hr, but we want HR for display)
+        normalized_type = normalize_bill_type(t).upper()  # hr -> HR, s -> S
+        bill_id = f"{normalized_type}.{n}" if t and n else None
+        
         results.append({
-            "bill_id": f"{t}.{n}" if t and n else None,
+            "bill_id": bill_id,
             "title": b.get("title"),
             "latest_action": {
                 "date": la.get("actionDate"),
@@ -511,3 +544,48 @@ def recent_bills():
         })
 
     return {"count": len(results), "results": results}
+
+
+@app.get("/bill_info")
+def get_bill_info(
+    bill_type: str = Query(..., description="Bill type (e.g., 'hr', 's', 'hjres')"),
+    bill_number: int = Query(..., description="Bill number", ge=1),
+    congress: Optional[int] = Query(None, description="Congress number (default: 117)")
+):
+    congress_num = congress or CONGRESS
+    bill_type_lower = bill_type.lower()
+    bill_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type_lower}/{bill_number}"
+    params = {"api_key": CONGRESS_API_KEY, "format": "json"}
+
+    try:
+        response = _get(bill_url, params=params)
+        data = response.json()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Bill not found: {str(e)}")
+
+    bill = data.get("bill", {}) or {}
+
+    # Build minimal result
+    result = {
+        "bill_id": f"{bill_type.upper()}.{bill_number}",
+        "title": bill.get("title"),
+        "introduced_date": bill.get("introducedDate"),
+        "policy_area": (bill.get("policyArea") or {}).get("name"),
+        "sponsors": [
+            {
+                "name": s.get("fullName"),
+                "party": s.get("party"),
+                "state": s.get("state"),
+                "bioguide_id": s.get("bioguideId"),
+                "district": s.get("district"),
+            }
+            for s in (bill.get("sponsors") or [])
+        ],
+        "cosponsors_count": (bill.get("cosponsors") or {}).get("count", 0),
+        "latest_action": {
+            "date": (bill.get("latestAction") or {}).get("actionDate"),
+            "text": (bill.get("latestAction") or {}).get("text"),
+        },
+    }
+
+    return JSONResponse(result)

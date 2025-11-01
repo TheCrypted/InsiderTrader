@@ -9,6 +9,7 @@ using DateTime = System.DateTime;
 using JsonElement = System.Text.Json.JsonElement;
 using JsonValueKind = System.Text.Json.JsonValueKind;
 using DotNetEnv;
+using InsiderTradingAPI;
 
 // Load .env file into environment variables
 Env.Load();
@@ -19,6 +20,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddSignalR();
 
 // Add CORS - Allow all origins for development
 builder.Services.AddCors(options =>
@@ -50,7 +53,7 @@ builder.Services.AddHttpClient("quiver", c =>
     c.DefaultRequestHeaders.Authorization =
         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "123");
 });
-
+builder.Services.AddHostedService<TradeSyncService>();
 
 // Add SQLite database
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -267,6 +270,8 @@ app.UseCors();
 app.UseSwagger();
 app.UseSwaggerUI();
 
+app.MapHub<TradeHub>("/hubs/trades");
+
 app.MapGet("/test", () => { return $"hello world!"; });
 
 app.MapGet("/politician-info/{bioGuideId}", async (string bioGuideId, AppDbContext db) =>
@@ -291,7 +296,16 @@ app.MapGet("/trades-by/{bioGuideId}",
 app.MapGet("/all-representatives", async (AppDbContext db) =>
     await db.Politicians.ToListAsync());
 
+var cheekyPoliticians = TradeSyncService.getCheeky();
+
 app.MapGet("/trading-volume-by-year/{bioGuideId}", async (string bioGuideId, AppDbContext db)=> {
+    if (cheekyPoliticians.ContainsKey(bioGuideId)) {
+        return cheekyPoliticians[bioGuideId].Select(x => new {
+            Year = x.Year.ToString(),
+            TotalUSDApprox = x.TotalUSDApprox.ToString()
+        }).OrderBy(x => x.Year).ToList();
+    }
+    
     var raw = await db.Trades
         .Where(t => t.bioGuideId == bioGuideId && t.tradedAt != null && t.tradedAt.Length >= 4)
         .Select(t => new { Year = t.tradedAt.Substring(0, 4), Amount = t.tradeAmount })
@@ -302,7 +316,7 @@ app.MapGet("/trading-volume-by-year/{bioGuideId}", async (string bioGuideId, App
         .GroupBy(x => x.Year)
         .Select(g => new {
             Year = g.Key,
-            TotalUSDApprox = g.Sum(v => (v.Range.Min + v.Range.Max) / 2m) // midpoint sum
+            TotalUSDApprox = g.Sum(v => (v.Range.Min + v.Range.Max) / 2m).ToString() // midpoint sum
         })
         .OrderBy(x => x.Year)
         .ToList();

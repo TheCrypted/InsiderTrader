@@ -51,41 +51,40 @@ export async function getCongressmanImage(name) {
   }
 }
 
-// Fetch stock company logo
+// Fetch stock company logo - optimized for S&P 500 companies
 export async function getStockLogo(symbol) {
+  if (!symbol || symbol === '-') {
+    return null;
+  }
+  
   try {
-    // Use multiple free logo services as fallbacks
+    // Normalize symbol (uppercase, remove any whitespace)
+    const normalizedSymbol = symbol.toUpperCase().trim();
     
-    // Option 1: Clearbit Logo API (free, no API key needed)
-    const clearbitUrl = `https://logo.clearbit.com/${getCompanyDomain(symbol)}`
+    // Use Clearbit Logo API - reliable for S&P 500 companies via company domain
+    const clearbitUrl = `https://logo.clearbit.com/${getCompanyDomain(normalizedSymbol)}`
     
-    // Check if image exists
-    const img = new Image()
     return new Promise((resolve) => {
-      img.onload = () => resolve(clearbitUrl)
-      img.onerror = () => {
-        // Fallback 1: TradingView logo CDN
-        const tradingViewUrl = `https://s3-symbol-logo.tradingview.com/${symbol.toLowerCase()}.svg`
-        const img2 = new Image()
-        img2.onload = () => resolve(tradingViewUrl)
-        img2.onerror = () => {
-          // Fallback 2: Alternative logo service
-          const finnhubUrl = `https://finnhub.io/api/logo?symbol=${symbol}`
-          const img3 = new Image()
-          img3.onload = () => resolve(finnhubUrl)
-          img3.onerror = () => {
-            // Fallback 3: Polygon.io pattern (if available)
-            const polygonUrl = `https://polygon.io/public/img/logo/${symbol.toLowerCase()}.svg`
-            const img4 = new Image()
-            img4.onload = () => resolve(polygonUrl)
-            img4.onerror = () => resolve(null)
-            img4.src = polygonUrl
-          }
-          img3.src = finnhubUrl
-        }
-        img2.src = tradingViewUrl
+      // Set timeout for image loading
+      const timeout = setTimeout(() => {
+        resolve(null);
+      }, 2000);
+      
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // Help with CORS if needed
+      
+      img.onload = () => {
+        clearTimeout(timeout);
+        resolve(clearbitUrl);
       }
-      img.src = clearbitUrl
+      
+      img.onerror = () => {
+        clearTimeout(timeout);
+        // If Clearbit fails, return null (ticker will be shown as fallback)
+        resolve(null);
+      }
+      
+      img.src = clearbitUrl;
     })
   } catch (error) {
     console.error(`Error fetching logo for ${symbol}:`, error)
@@ -93,30 +92,136 @@ export async function getStockLogo(symbol) {
   }
 }
 
-// Get company domain from stock symbol (mapping for common companies)
+// Get company domain from stock symbol - comprehensive S&P 500 mapping
 function getCompanyDomain(symbol) {
   const domainMap = {
+    // Tech
     'NVDA': 'nvidia.com',
     'AVGO': 'broadcom.com',
     'AAPL': 'apple.com',
     'MSFT': 'microsoft.com',
-    'TSLA': 'tesla.com',
-    'TEM': 'tempus.ai',
     'GOOGL': 'google.com',
+    'GOOG': 'google.com', // GOOG is also Alphabet
     'AMZN': 'amazon.com',
     'META': 'meta.com',
-    'NFLX': 'netflix.com'
+    'AMD': 'amd.com',
+    'CSCO': 'cisco.com',
+    'INTC': 'intel.com',
+    'ORCL': 'oracle.com',
+    'CRM': 'salesforce.com',
+    'ADBE': 'adobe.com',
+    'PANW': 'paloaltonetworks.com',
+    
+    // Financial
+    'JPM': 'jpmorganchase.com',
+    'BAC': 'bankofamerica.com',
+    'WFC': 'wellsfargo.com',
+    'GS': 'goldmansachs.com',
+    'MS': 'morganstanley.com',
+    'C': 'citigroup.com',
+    'BLK': 'blackrock.com',
+    
+    // Healthcare
+    'JNJ': 'jnj.com',
+    'PFE': 'pfizer.com',
+    'MRK': 'merck.com',
+    'ABT': 'abbott.com',
+    'UNH': 'unitedhealthgroup.com',
+    'TMO': 'thermofisher.com',
+    'ABBV': 'abbvie.com',
+    'LLY': 'lilly.com',
+    'NVO': 'novo-nordisk.com',
+    
+    // Energy
+    'CVX': 'chevron.com',
+    'XOM': 'exxonmobil.com',
+    'COP': 'conocophillips.com',
+    'SLB': 'slb.com',
+    'EOG': 'eogresources.com',
+    'EXC': 'exeloncorp.com',
+    
+    // Consumer
+    'WMT': 'walmart.com',
+    'PG': 'pg.com',
+    'DIS': 'thewaltdisneycompany.com',
+    'HD': 'homedepot.com',
+    'NFLX': 'netflix.com',
+    'SBUX': 'starbucks.com',
+    'TGT': 'target.com',
+    'LOW': 'lowes.com',
+    
+    // Industrial
+    'BA': 'boeing.com',
+    'CAT': 'caterpillar.com',
+    'GE': 'ge.com',
+    'HON': 'honeywell.com',
+    'MMM': '3m.com',
+    
+    // Communication
+    'VZ': 'verizon.com',
+    'T': 'att.com',
+    'CMCSA': 'comcast.com',
+    'NFLX': 'netflix.com',
+    
+    // Utilities
+    'NEE': 'nexteraenergy.com',
+    'DUK': 'duke-energy.com',
+    'SO': 'southerncompany.com',
+    'AEP': 'aep.com',
+    
+    // Consumer Staples
+    'KO': 'coca-cola.com',
+    'PEP': 'pepsico.com',
+    'PM': 'pmi.com',
+    
+    // Materials
+    'LIN': 'linde.com',
+    'APD': 'airproducts.com',
+    'ECL': 'ecolab.com',
+    
+    // Real Estate
+    'AMT': 'american-tower.com',
+    'EQIX': 'equinix.com',
+    
+    // Other
+    'IBIT': 'blackrock.com', // iShares Bitcoin Trust - uses BlackRock
+    'CAH': 'cardinalhealth.com',
+    'TEM': 'tempus.ai'
   }
   
-  return domainMap[symbol] || `${symbol.toLowerCase()}.com`
+  // If not in map, try a simple pattern (works for many companies)
+  if (domainMap[symbol]) {
+    return domainMap[symbol];
+  }
+  
+  // Try lowercase symbol.com as fallback (works for many S&P 500 companies)
+  return `${symbol.toLowerCase()}.com`;
 }
 
 // Alternative: Use Financial Modeling Prep API (free tier available)
+// NOTE: Demo API key returns 401 errors, so this is disabled
 export async function getStockLogoFromAPI(symbol) {
+  // Financial Modeling Prep demo API key is expired/not working (401 errors)
+  // Disabled to avoid unnecessary API calls
+  return null;
+  
+  /* Commented out - demo API key no longer works
+  if (!symbol || symbol === '-') {
+    return null;
+  }
+  
   try {
+    // Normalize symbol
+    const normalizedSymbol = symbol.toUpperCase().trim();
+    
     // Using a free public API endpoint (you may want to add your own API key)
-    const apiUrl = `https://financialmodelingprep.com/api/v3/profile/${symbol}?apikey=demo`
-    const response = await fetch(apiUrl)
+    const apiUrl = `https://financialmodelingprep.com/api/v3/profile/${normalizedSymbol}?apikey=demo`
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    })
     
     if (response.ok) {
       const data = await response.json()
@@ -130,5 +235,6 @@ export async function getStockLogoFromAPI(symbol) {
     console.error(`Error fetching logo from API for ${symbol}:`, error)
     return null
   }
+  */
 }
 

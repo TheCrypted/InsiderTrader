@@ -344,5 +344,130 @@ export const getChartData = async (congressmanId) => {
   }
 };
 
+// ============================================
+// Model API Client (Port 8000)
+// ============================================
+// Use proxy in development to avoid CORS issues
+const MODEL_API_BASE_URL = import.meta.env.VITE_MODEL_API_BASE_URL || (import.meta.env.DEV ? '/model-api' : 'http://localhost:8000');
+
+const modelApiClient = axios.create({
+  baseURL: MODEL_API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000, // 10 second timeout
+});
+
+// Fetch recent bills from model API
+export const getRecentBills = async () => {
+  try {
+    console.log('Fetching recent bills from API...');
+    const response = await modelApiClient.get('/recent_bills');
+    console.log('Recent bills API response:', response.data);
+    
+    if (response.data && response.data.results && response.data.results.length > 0) {
+      const bills = response.data.results.map((bill) => ({
+        bill_id: bill.bill_id, // e.g., "HR.5345" or "SJRES.88"
+        title: bill.title || 'Untitled Bill',
+        latest_action: bill.latest_action || {},
+        url: bill.url,
+      }));
+      console.log(`Fetched ${bills.length} bills from API`);
+      return bills;
+    }
+    console.log('No bills in API response');
+    return [];
+  } catch (error) {
+    console.error('Error fetching recent bills from model API:', error);
+    console.error('Error details:', error.response?.data || error.message);
+    return [];
+  }
+};
+
+// Parse bill_id to extract bill_type and bill_number
+// Example: "H.R.1234" -> {bill_type: "HR", bill_number: 1234}
+// Example: "H.2461" -> {bill_type: "HR", bill_number: 2461}
+// Example: "HR.1234" -> {bill_type: "HR", bill_number: 1234}
+// Example: "S.567" -> {bill_type: "S", bill_number: 567}
+const parseBillId = (billId) => {
+  if (!billId) return null;
+  
+  // Match patterns like: HR.1234, H.R.1234, H.1234, S.567, etc.
+  // Also handle full types like HJRES, SJRES, etc.
+  const patterns = [
+    /^(HR|H\.R|H\.R\.|H)(?:\.)?(\d+)$/i,  // HR.1234, H.R.1234, H.1234, or H.R.1234
+    /^(S)(?:\.)?(\d+)$/i,                  // S.567
+    /^(HJRES|SJRES|HCONRES|SCONRES|HRES|SRES)(?:\.)?(\d+)$/i,  // Full types
+  ];
+  
+  for (const pattern of patterns) {
+    const match = billId.match(pattern);
+    if (match) {
+      // Normalize: H, H.R, H.R., or HR -> HR (for House bills), S -> S
+      let billType = match[1].toUpperCase();
+      // Handle various H formats
+      if (billType === 'H' || billType === 'H.R' || billType === 'H.R.') {
+        billType = 'HR'; // Normalize to HR for consistency
+      }
+      
+      return {
+        bill_type: billType,
+        bill_number: parseInt(match[2], 10),
+      };
+    }
+  }
+  
+  console.warn(`Could not parse bill_id: ${billId}`);
+  return null;
+};
+
+// Fetch relevant stocks for a bill from model API (with timeout)
+export const getBillRelevantStocks = async (billId, timeout = 5000) => {
+  try {
+    const parsed = parseBillId(billId);
+    if (!parsed) {
+      console.warn(`Could not parse bill_id: ${billId}`);
+      return [];
+    }
+
+    console.log(`Fetching stocks for bill ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
+    
+    // Use Promise.race to add timeout
+    const response = await Promise.race([
+      modelApiClient.get('/match', {
+        params: {
+          bill_type: parsed.bill_type,
+          bill_number: parsed.bill_number,
+        },
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), timeout)
+      )
+    ]);
+
+    if (response.data && response.data.results && response.data.results.length > 0) {
+      // Map API response to frontend format (top 5 stocks)
+      return response.data.results.slice(0, 5).map((stock, index) => ({
+        symbol: stock.ticker || `STOCK${index + 1}`,
+        name: stock.name || 'Unknown Company',
+        sector: stock.sector || 'Unknown',
+        relevance: `Hybrid score: ${(stock.hybrid_score || 0).toFixed(3)}. This stock is relevant to the bill based on similarity analysis.`,
+        // Mock price data (not provided by API)
+        currentPrice: 100 + Math.random() * 200,
+        change: (Math.random() - 0.5) * 10,
+        changePercent: (Math.random() - 0.5) * 5,
+        marketCap: 'N/A',
+      }));
+    }
+    return [];
+  } catch (error) {
+    // Log the actual error message from API for debugging
+    const errorMessage = error.response?.data?.detail || error.message;
+    console.error(`Error fetching relevant stocks for bill ${billId} from model API:`, errorMessage);
+    console.error('Full error:', error);
+    return [];
+  }
+};
+
 export default apiClient;
 
