@@ -470,3 +470,44 @@ def match(bill_type: str = Query(..., min_length=1), bill_number: int = Query(..
         "snippet": snippet,
         "results": top.to_dict(orient="records"),
     })
+
+
+@app.get("/recent_bills")
+def recent_bills():
+    """
+    Return the last 10 bills by latest action from Congress.gov.
+    No local sorting or filtering; we trust the API ordering.
+    """
+    url = "https://api.congress.gov/v3/bill"
+    try:
+        r = _get(
+            url,
+            params={
+                "api_key": CONGRESS_API_KEY,
+                "format": "json",
+                "limit": 10,  # exactly 10
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Congress API error: {e}")
+
+    data = r.json()
+    items = data.get("bills", []) or []
+
+    # Normalize a compact payload
+    results = []
+    for b in items:
+        t = (b.get("type") or "").upper()
+        n = str(b.get("number") or "").strip()
+        la = b.get("latestAction") or {}
+        results.append({
+            "bill_id": f"{t}.{n}" if t and n else None,
+            "title": b.get("title"),
+            "latest_action": {
+                "date": la.get("actionDate"),
+                "text": la.get("text"),
+            },
+            "url": b.get("url"),
+        })
+
+    return {"count": len(results), "results": results}
