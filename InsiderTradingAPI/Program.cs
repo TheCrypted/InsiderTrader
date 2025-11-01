@@ -29,6 +29,15 @@ builder.Services.AddHttpClient("bio", client =>
         AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
     });
 
+builder.Services.AddHttpClient("quiver", c =>
+{
+    c.BaseAddress = new Uri("https://api.quiverquant.com");
+    c.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+    c.DefaultRequestHeaders.Authorization =
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "<YOUR_TOKEN_HERE>");
+});
+
+
 // Add SQLite database
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
@@ -125,6 +134,10 @@ using (var scope = app.Services.CreateScope())
             await db.SaveChangesAsync();
         }
     }
+
+    if (!db.Trades.Any()) {
+        
+    }
 }
 
 // helpers
@@ -190,6 +203,19 @@ static async Task<string> GetBioGuideImageUrlAsync(string bioGuideId, HttpClient
     return "";
 }
 
+static Trade MapToTrade(CongressTradingRecordResponse record)
+{
+    return new Trade(
+        bioGuideId: record.Party,
+        fullName: record.Name,
+        ticker: record.Ticker,
+        companyName: record.Company,
+        tradedAt: record.Traded.ToString("yyyy-MM-dd"),
+        disclosureDate: record.Filed.ToString("yyyy-MM-dd"),
+        tradeType: record.Transaction,
+        tradeAmount: record.Trade_Size_USD
+    );
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment()) {
@@ -216,4 +242,32 @@ app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string
     return Results.Content(content, "application/json");
 });
 
+// given politician ID- give their last 24 months of trades
+
+app.MapGet("/trades-by/{bioGuideId}", async () => {
+    
+});
+
 app.Run();
+
+public record CongressTradingRecordResponse(
+    string Ticker,
+    string TickerType,
+    string Company,
+    DateTime Traded,
+    string Transaction,
+    string Trade_Size_USD,
+    string Status,
+    string Subholding,
+    string Description,
+    string Name,
+    DateTime Filed,
+    string Party,
+    string District,
+    string Chamber,
+    string Comments,
+    string excess_return,
+    string? uploaded,
+    string State,
+    string? last_modified
+);

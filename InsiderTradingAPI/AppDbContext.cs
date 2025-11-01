@@ -7,6 +7,7 @@ public class AppDbContext : DbContext
     }
 
     public DbSet<Politician> Politicians { get; set; }
+    public DbSet<Trade> Trades { get; set; }
 }
 
 [PrimaryKey(nameof(bioGuideId))]
@@ -20,5 +21,5 @@ public record Politician(
     string imageUrl
 );
     
-record Trade(string bioGuideId, string fullName, string ticker,
-    string tradedAt, string tradeType, string tradeAmount);
+public record Trade(string bioGuideId, string fullName, string ticker, string companyName,
+    string tradedAt, string disclosureDate, string tradeType, string tradeAmount);
