@@ -1,11 +1,22 @@
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add SQLite database
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
+                      ?? "Data Source=app.db"));
+
 var app = builder.Build();
+
+// Weather summaries used throughout the app
+var summaries = new[] {
+    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+};
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment()) {
@@ -15,12 +26,28 @@ if (app.Environment.IsDevelopment()) {
 
 app.UseHttpsRedirection();
 
-var summaries = new[] {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
 
 app.MapGet("/test", () => {
-    return "hello world!";
+    return $"hello world!";
+});
+
+app.MapGet("/weatherforecasts", async (AppDbContext db) => {
+    return await db.WeatherForecasts.ToListAsync();
+});
+
+app.MapPost("/weatherforecasts", async (AppDbContext db) => {
+    var random = new Random();
+    var weatherForecast = new WeatherForecast
+    {
+        Date = DateTime.Now.AddDays(random.Next(1, 30)),
+        TemperatureC = random.Next(-20, 55),
+        Summary = summaries[random.Next(summaries.Length)]
+    };
+    
+    db.WeatherForecasts.Add(weatherForecast);
+    await db.SaveChangesAsync();
+    
+    return Results.Created($"/weatherforecasts/{weatherForecast.Id}", weatherForecast);
 });
 
 app.Run();
