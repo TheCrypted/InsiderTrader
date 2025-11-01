@@ -1,0 +1,6 @@
+@InsiderTradingAPI_HostAddress = http://localhost:5073
+
+GET {{InsiderTradingAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
