@@ -339,60 +339,71 @@ const BrowsePage = () => {
 
         {/* Legislation List */}
         {activeTab === 'legislation' && (
-          <div className="space-y-0 border-t border-l border-black">
-            {filteredLegislation.map((bill, index) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-l border-r border-black -mx-6">
+            {filteredLegislation.map((bill, index) => {
+              const isLastInRow = (index + 1) % 2 === 0;
+              
+              return (
               <Link
                 key={bill.id}
                 to={`/legislation/${bill.id}/bet`}
-                className={`block bg-white border-b border-r border-black p-6 hover:bg-gray-50 transition-colors relative group ${
-                  index === filteredLegislation.length - 1 ? 'border-b-0' : ''
+                className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
+                  isLastInRow ? 'border-r-0' : ''
                 }`}
               >
                 {/* Blue square on top-right corner on hover */}
                 <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-lg font-bold text-gray-900">{bill.id}</h3>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        bill.status === 'Passed House' || bill.status === 'Passed Senate' || bill.status === 'Enacted'
-                          ? 'bg-green-100 text-green-800'
-                          : bill.status === 'In Committee'
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {bill.status}
-                      </span>
-                    </div>
-                    <h4 className="text-xl font-semibold text-gray-900 mb-2">{bill.title}</h4>
-                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{bill.summary || 'No summary available'}</p>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span>Cosponsors: {bill.cosponsors}</span>
-                      <span>•</span>
-                      <span>Sector: {bill.sector}</span>
-                      <span>•</span>
-                      <span>{new Date(bill.date).toLocaleDateString()}</span>
-                    </div>
+                
+                {/* Left Section - White Background (75-80% width) */}
+                <div className="flex-1 border-r border-black p-6" style={{ width: '75%' }}>
+                  {/* Top Area - Bill ID and Name */}
+                  <div className="mb-4">
+                    <div className="text-xs text-gray-600 mb-1">Bill id</div>
+                    <div className="border-b border-black mb-2"></div>
+                    <div className="text-sm font-medium text-gray-700 mb-1">{bill.id.replace(/H\.R\./, 'H.').replace(/S\./, 'S.')}</div>
+                    <h3 className="text-2xl font-bold text-gray-900">{bill.title}</h3>
                   </div>
                   
-                  {/* Odds Display */}
-                  <div className="ml-6 flex flex-col gap-3 min-w-[200px]">
-                    <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 text-center">
-                      <div className="text-xs text-gray-600 mb-1">Passing Odds</div>
-                      <div className="text-2xl font-bold text-green-700">
-                        {(bill.passingOdds * 100).toFixed(1)}%
-                      </div>
+                  {/* Bottom Area - Three blocks in a row */}
+                  <div className="flex gap-0">
+                    {/* Sector Block - White */}
+                    <div className="flex-1 p-4 bg-white border-r border-black">
+                      <div className="text-xs text-gray-600 mb-1">Sector</div>
+                      <div className="text-sm font-medium text-gray-900">{bill.sector}</div>
                     </div>
-                    <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 text-center">
-                      <div className="text-xs text-gray-600 mb-1">Failing Odds</div>
-                      <div className="text-2xl font-bold text-red-700">
-                        {(bill.failingOdds * 100).toFixed(1)}%
-                      </div>
+                    
+                    {/* Date Block - White */}
+                    <div className="flex-1 p-4 bg-white border-r border-black">
+                      <div className="text-xs text-gray-600 mb-1">date</div>
+                      <div className="text-sm font-medium text-gray-900">{new Date(bill.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    </div>
+                    
+                    {/* Cosponsors Block - White */}
+                    <div className="flex-1 p-4 bg-white">
+                      <div className="text-xs text-gray-600 mb-1">No.</div>
+                      <div className="text-xs text-gray-600 mb-1">cosponsors</div>
+                      <div className="text-sm font-medium text-gray-900">{bill.cosponsors}</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Right Section - Green or Red Background (20-25% width) */}
+                <div 
+                  className={`flex items-center justify-center p-6 ${bill.passingOdds >= 0.5 ? 'bg-green-50' : 'bg-red-50'}`} 
+                  style={{ width: '25%' }}
+                >
+                  <div className="text-center">
+                    <div 
+                      className={`font-bold ${bill.passingOdds >= 0.5 ? 'text-green-700' : 'text-red-700'}`}
+                      style={{ fontSize: '3.5rem' }}
+                    >
+                      {(bill.passingOdds * 100).toFixed(1)}%
                     </div>
                   </div>
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
