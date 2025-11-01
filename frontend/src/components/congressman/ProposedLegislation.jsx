@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import LoadingSpinner from '../shared/LoadingSpinner';
 
 const ProposedLegislation = ({ congressmanId, loading }) => {
@@ -223,6 +224,12 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
                     <div className="text-xs text-gray-400 mt-1">
                       Committees: {bill.committees.join(', ')}
                     </div>
+                    <Link
+                      to={`/legislation/${bill.id}/bet`}
+                      className="inline-block mt-2 text-xs c-btn c-btn--yellow px-3 py-1"
+                    >
+                      Predict Outcome →
+                    </Link>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[bill.status] || 'bg-gray-100 text-gray-800'}`}>

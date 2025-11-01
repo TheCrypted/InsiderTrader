@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import CongressmanTradingPage from './pages/CongressmanTradingPage'
+import LegislationBetPage from './pages/LegislationBetPage'
+import GraphPage from './pages/GraphPage'
 import './App.css'
 import Header from './components/Header'
 import SearchSection from './components/SearchSection'
@@ -45,6 +47,8 @@ function App() {
     <Routes>
       <Route path="/" element={<DashboardPage />} />
       <Route path="/congressman/:id/trading" element={<CongressmanTradingPage />} />
+      <Route path="/legislation/:billId/bet" element={<LegislationBetPage />} />
+      <Route path="/graph" element={<GraphPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
