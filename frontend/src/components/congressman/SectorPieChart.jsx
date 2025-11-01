@@ -3,30 +3,30 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 const SectorPieChart = ({ data }) => {
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-8 flex items-center justify-center">
+      <div className="bg-white p-8 flex items-center justify-center">
         <p className="text-gray-500">No sector data available</p>
       </div>
     );
   }
 
-  // G-research color palette from their design system
+  // Pastel muted color palette
   const COLORS = [
-    '#e5fc54', // yellow (primary accent)
-    '#0693e3', // vivid cyan blue
-    '#9b51e0', // vivid purple
-    '#00d084', // vivid green cyan
-    '#8ed1fc', // pale cyan blue
-    '#cf2e2e', // vivid red
-    '#7bdcb5', // light green cyan
-    '#fcb900'  // luminous vivid amber
+    '#d1fae5', // pastel mint green
+    '#fce7f3', // pastel pink
+    '#e0e7ff', // pastel lavender
+    '#fef3c7', // pastel yellow
+    '#dbeafe', // pastel blue
+    '#fde2e4', // pastel rose
+    '#e5e7eb', // pastel gray
+    '#f3e8ff'  // pastel purple
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-3 h-full">
+    <div className="bg-white p-6 h-full">
       <h3 className="text-xs font-semibold text-gray-600 mb-2">Top Traded Sectors</h3>
       <div className="flex flex-col gap-2">
         <div className="flex-1">
-          <ResponsiveContainer width="100%" height={140}>
+          <ResponsiveContainer width="100%" height={100}>
             <PieChart>
               <Pie
                 data={data}
@@ -34,8 +34,8 @@ const SectorPieChart = ({ data }) => {
                 cy="50%"
                 labelLine={false}
                 label={false}
-                outerRadius={60}
-                innerRadius={20}
+                outerRadius={40}
+                innerRadius={15}
                 fill="#8884d8"
                 dataKey="percentage"
               >

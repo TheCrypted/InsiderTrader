@@ -2,12 +2,11 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useCongressmanData } from '../hooks/useCongressmanData';
 import { useTradesData } from '../hooks/useTradesData';
-import Container from '../components/shared/Container';
+import Header from '../components/Header';
 import CongressmanProfile from '../components/congressman/CongressmanProfile';
 import CongressmanTabs from '../components/congressman/CongressmanTabs';
 import TradeVolumeChart from '../components/congressman/TradeVolumeChart';
 import SectorPieChart from '../components/congressman/SectorPieChart';
-import StatsOverview from '../components/congressman/StatsOverview';
 import TradesTable from '../components/congressman/TradesTable';
 import LiveStockPortfolio from '../components/congressman/LiveStockPortfolio';
 import NetWorth from '../components/congressman/NetWorth';
@@ -25,20 +24,14 @@ const CongressmanTradingPage = () => {
     switch (activeTab) {
       case 'trades':
         return (
-          <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
-                <TradeVolumeChart data={chartData.volumeByYear} loading={loadingTrades} />
-              </div>
-              <div>
-                <StatsOverview
-                  tradeVolume={congressman?.tradeVolume || '-'}
-                  totalTrades={congressman?.totalTrades || '-'}
-                />
-              </div>
+          <div className="grid grid-cols-1">
+            {/* Full width chart section */}
+            <div className="border-b border-black">
+              <TradeVolumeChart data={chartData.volumeByYear} loading={loadingTrades} />
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
+            {/* Bottom section with table and pie chart */}
+            <div className="grid grid-cols-3">
+              <div className="col-span-2 border-r border-black">
                 <TradesTable trades={trades} loading={loadingTrades} />
               </div>
               <div>
@@ -70,43 +63,43 @@ const CongressmanTradingPage = () => {
 
   if (loadingProfile) {
     return (
-      <div className="min-h-screen bg-gresearch-grey-200 py-12">
-        <Container>
-          <LoadingSpinner size="lg" className="mt-20" />
-        </Container>
+      <div className="min-h-screen bg-white">
+        <Header />
+        <div className="flex items-center justify-center min-h-[80vh]">
+          <LoadingSpinner size="lg" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-gresearch-grey-200 overflow-hidden flex flex-col">
-      <Container className="flex-1 flex flex-col py-4">
-        {/* Back Link */}
-        <div className="mb-2">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 text-sm text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Congress Trading
-          </Link>
-        </div>
-
-        {/* Profile Section */}
-        <div className="mb-3">
-          <CongressmanProfile congressman={congressman} loading={loadingProfile} />
-        </div>
-
-        {/* Tabs and Content */}
-        <div className="bg-white rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex-shrink-0">
-            <CongressmanTabs activeTab={activeTab} onTabChange={setActiveTab} />
+    <div className="min-h-screen bg-white">
+      <Header />
+      
+      <main>
+        {/* Profile and Content Section - Grid layout with profile on left */}
+        <div className="flex flex-col lg:flex-row border-b border-black">
+          {/* Profile Section - Left side (narrower, fixed width) */}
+          <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-black flex-shrink-0">
+            <CongressmanProfile congressman={congressman} loading={loadingProfile} />
           </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-4">{renderTabContent()}</div>
+
+          {/* Tabs and Content Section - Right side */}
+          <div className="flex-1 min-w-0">
+            {/* Tabs Section - Grid with black border */}
+            <div className="border-b border-black">
+              <div className="px-6 py-4">
+                <CongressmanTabs activeTab={activeTab} onTabChange={setActiveTab} />
+              </div>
+            </div>
+
+            {/* Content Section - Grid with black border */}
+            <div className="border-b border-black">
+              <div className="px-6 py-4">{renderTabContent()}</div>
+            </div>
+          </div>
         </div>
-      </Container>
+      </main>
     </div>
   );
 };

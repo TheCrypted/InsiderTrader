@@ -93,35 +93,35 @@ const LiveStockPortfolio = ({ congressmanId, loading }) => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-8 flex items-center justify-center">
+      <div className="bg-white p-8 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-0">
       {/* Portfolio Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gray-50 rounded-lg p-4">
+      <div className="grid grid-cols-3 border-b border-black">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Total Portfolio Value</div>
           <div className="text-xl font-semibold text-gray-900">{formatCurrency(totalValue)}</div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Total Gain/Loss</div>
           <div className={`text-xl font-semibold ${totalGain >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'}`}>
             {formatCurrency(totalGain)} ({totalGainPercent}%)
           </div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6">
           <div className="text-xs text-gray-600 mb-1">Holdings</div>
           <div className="text-xl font-semibold text-gray-900">{portfolioData.length}</div>
         </div>
       </div>
 
       {/* Holdings Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
+      <div className="bg-white overflow-hidden">
+        <div className="p-4 border-b border-black">
           <h3 className="text-lg font-semibold text-gray-900">Current Holdings</h3>
         </div>
         <div className="overflow-x-auto">

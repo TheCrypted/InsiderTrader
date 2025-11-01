@@ -97,24 +97,24 @@ const CorporateDonors = ({ congressmanId, loading }) => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-8 flex items-center justify-center">
+      <div className="bg-white p-8 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-0">
       {/* Summary */}
-      <div className="bg-gray-50 rounded-lg p-4">
+      <div className="bg-white p-6 border-b border-black">
         <div className="text-xs text-gray-600 mb-1">Total Corporate Donations</div>
         <div className="text-2xl font-semibold text-gray-900">{formatCurrency(totalDonations)}</div>
         <div className="text-xs text-gray-500 mt-1">{donorsData.length} corporate donors</div>
       </div>
 
       {/* Donors Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
+      <div className="bg-white overflow-hidden">
+        <div className="p-4 border-b border-black">
           <h3 className="text-lg font-semibold text-gray-900">Corporate Donors</h3>
         </div>
         <div className="overflow-x-auto">

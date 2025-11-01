@@ -111,27 +111,27 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-8 flex items-center justify-center">
+      <div className="bg-white p-8 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-0">
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gray-50 rounded-lg p-4">
+      <div className="grid grid-cols-3 border-b border-black">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Total Bills</div>
           <div className="text-xl font-semibold text-gray-900">{legislationData.length}</div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">In Committee</div>
           <div className="text-xl font-semibold text-gray-900">
             {legislationData.filter(b => b.status === 'In Committee').length}
           </div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6">
           <div className="text-xs text-gray-600 mb-1">Total Cosponsors</div>
           <div className="text-xl font-semibold text-gray-900">
             {legislationData.reduce((sum, b) => sum + b.cosponsors, 0)}
@@ -140,7 +140,7 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm p-4">
+      <div className="bg-white p-6 border-b border-black">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilter('all')}
@@ -169,8 +169,8 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
       </div>
 
       {/* Legislation Table */}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-gray-200">
+      <div className="bg-white overflow-hidden">
+        <div className="p-4 border-b border-black">
           <h3 className="text-lg font-semibold text-gray-900">Proposed Legislation</h3>
         </div>
         <div className="overflow-x-auto max-h-96 overflow-y-auto">

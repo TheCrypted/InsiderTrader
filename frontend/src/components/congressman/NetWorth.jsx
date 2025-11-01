@@ -34,27 +34,27 @@ const NetWorth = ({ congressman, loading }) => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-8 flex items-center justify-center">
+      <div className="bg-white p-8 flex items-center justify-center">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-0">
       {/* Net Worth Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gray-50 rounded-lg p-4">
+      <div className="grid grid-cols-3 border-b border-black">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Current Net Worth</div>
           <div className="text-xl font-semibold text-gray-900">{congressman?.netWorth || formatCurrency(selectedData.value)}</div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Year Change</div>
           <div className={`text-xl font-semibold ${yearlyChange >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'}`}>
             {yearlyChange >= 0 ? '+' : ''}{formatCurrency(yearlyChange)} ({yearlyChangePercent >= 0 ? '+' : ''}{yearlyChangePercent.toFixed(1)}%)
           </div>
         </div>
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-white p-6">
           <div className="text-xs text-gray-600 mb-1">Total Growth</div>
           <div className="text-xl font-semibold text-gresearch-vivid-green">
             {formatCurrency(selectedData.value - netWorthHistory[0].value)} ({((selectedData.value / netWorthHistory[0].value - 1) * 100).toFixed(1)}%)
@@ -63,7 +63,7 @@ const NetWorth = ({ congressman, loading }) => {
       </div>
 
       {/* Net Worth Chart */}
-      <div className="bg-white rounded-lg shadow-sm p-4">
+      <div className="bg-white p-6 border-b border-black">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Net Worth Over Time</h3>
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={netWorthHistory} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
@@ -99,7 +99,7 @@ const NetWorth = ({ congressman, loading }) => {
       </div>
 
       {/* Year Selector */}
-      <div className="bg-white rounded-lg shadow-sm p-4">
+      <div className="bg-white p-6">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Select Year</h3>
         <div className="flex flex-wrap gap-2">
           {netWorthHistory.map((data) => (
