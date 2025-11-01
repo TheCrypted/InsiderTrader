@@ -17,6 +17,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Add CORS - Allow all origins for development
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin() // Allow any origin for development
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 builder.Services.AddHttpClient("bio", client =>
     {
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
@@ -242,6 +253,7 @@ static Trade ToTrade(CongressionalTradeLiveResponse r)
     );
 }
 
+app.UseCors();
 app.UseSwagger();
 app.UseSwaggerUI();
 
