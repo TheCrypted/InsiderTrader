@@ -1,13 +1,20 @@
+import { Link } from 'react-router-dom'
 import { useCongressmanImage } from '../hooks/useImage'
 
-export default function CongressmanCard({ name, party, position, trades, isFirst = false, isLast = false }) {
+export default function CongressmanCard({ name, party, position, trades, id, isFirst = false, isLast = false }) {
   const { imageUrl, loading } = useCongressmanImage(name)
   const borderClasses = isLast 
     ? "border-b border-black" 
     : "border-b border-r border-black"
+  
+  // Generate the route path for the trading page
+  const tradingPagePath = id ? `/congressman/${id}/trading` : '#'
     
   return (
-    <div className={`bg-white ${borderClasses} p-6 relative group hover:bg-gray-50 transition-colors`}>
+    <Link 
+      to={tradingPagePath}
+      className={`block bg-white ${borderClasses} p-6 relative group hover:bg-gray-50 transition-colors cursor-pointer`}
+    >
       {/* Blue square on top-right corner on hover */}
       <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
       
@@ -34,7 +41,7 @@ export default function CongressmanCard({ name, party, position, trades, isFirst
           )}
         </div>
       </div>
-    </div>
+    </Link>
   )
 }
 
