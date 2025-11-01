@@ -21,7 +21,7 @@ import json
 # =========================
 # Config
 # =========================
-CONGRESS = 117
+CONGRESS = 119
 MODEL_NAME = "all-mpnet-base-v2"
 
 # Optional precomputed artifacts (company embeddings, company texts, companies df)
@@ -544,3 +544,48 @@ def recent_bills():
         })
 
     return {"count": len(results), "results": results}
+
+
+@app.get("/bill_info")
+def get_bill_info(
+    bill_type: str = Query(..., description="Bill type (e.g., 'hr', 's', 'hjres')"),
+    bill_number: int = Query(..., description="Bill number", ge=1),
+    congress: Optional[int] = Query(None, description="Congress number (default: 117)")
+):
+    congress_num = congress or CONGRESS
+    bill_type_lower = bill_type.lower()
+    bill_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type_lower}/{bill_number}"
+    params = {"api_key": CONGRESS_API_KEY, "format": "json"}
+
+    try:
+        response = _get(bill_url, params=params)
+        data = response.json()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Bill not found: {str(e)}")
+
+    bill = data.get("bill", {}) or {}
+
+    # Build minimal result
+    result = {
+        "bill_id": f"{bill_type.upper()}.{bill_number}",
+        "title": bill.get("title"),
+        "introduced_date": bill.get("introducedDate"),
+        "policy_area": (bill.get("policyArea") or {}).get("name"),
+        "sponsors": [
+            {
+                "name": s.get("fullName"),
+                "party": s.get("party"),
+                "state": s.get("state"),
+                "bioguide_id": s.get("bioguideId"),
+                "district": s.get("district"),
+            }
+            for s in (bill.get("sponsors") or [])
+        ],
+        "cosponsors_count": (bill.get("cosponsors") or {}).get("count", 0),
+        "latest_action": {
+            "date": (bill.get("latestAction") or {}).get("actionDate"),
+            "text": (bill.get("latestAction") or {}).get("text"),
+        },
+    }
+
+    return JSONResponse(result)
