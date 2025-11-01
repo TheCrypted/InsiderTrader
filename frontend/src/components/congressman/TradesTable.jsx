@@ -204,9 +204,9 @@ const TradesTable = ({ trades, loading }) => {
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-medium ${
                           trade.transaction === 'Purchase'
-                            ? 'bg-green-100 text-green-800'
+                            ? 'bg-gresearch-yellow/20 text-gray-900 border border-gresearch-yellow/40'
                             : trade.transaction === 'Sale'
-                            ? 'bg-red-100 text-red-800'
+                            ? 'bg-gresearch-vivid-red/20 text-gresearch-vivid-red border border-gresearch-vivid-red/40'
                             : 'bg-gray-100 text-gray-800'
                         }`}
                       >
@@ -224,7 +224,7 @@ const TradesTable = ({ trades, loading }) => {
                     {trade.excessReturn !== null ? (
                       <span
                         className={`font-semibold text-sm ${
-                          trade.excessReturn >= 0 ? 'text-green-600' : 'text-red-600'
+                          trade.excessReturn >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'
                         }`}
                       >
                         {trade.excessReturn >= 0 ? '+' : ''}

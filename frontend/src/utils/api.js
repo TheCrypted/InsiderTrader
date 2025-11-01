@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { mockCongressman, mockTrades, mockVolumeByYear, mockSectorData } from './mockData';
+import { mockCongressmen, mockCongressman, mockTrades, mockTradesByCongressman, mockVolumeByYear, mockVolumeByYearByCongressman, mockSectorData } from './mockData';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5073';
 
@@ -19,7 +19,8 @@ export const getCongressman = async (id) => {
     
     // Mock delay to simulate API call
     await new Promise(resolve => setTimeout(resolve, 500));
-    return { ...mockCongressman, id };
+    const congressman = mockCongressmen[id] || mockCongressman;
+    return { ...congressman, id };
   } catch (error) {
     console.error('Error fetching congressman:', error);
     throw error;
@@ -34,7 +35,7 @@ export const getTrades = async (congressmanId) => {
     
     // Mock delay to simulate API call
     await new Promise(resolve => setTimeout(resolve, 500));
-    return mockTrades;
+    return mockTradesByCongressman[congressmanId] || mockTrades;
   } catch (error) {
     console.error('Error fetching trades:', error);
     throw error;
@@ -50,8 +51,8 @@ export const getChartData = async (congressmanId) => {
     // Mock delay to simulate API call
     await new Promise(resolve => setTimeout(resolve, 500));
     return {
-      volumeByYear: mockVolumeByYear,
-      sectorData: mockSectorData
+      volumeByYear: mockVolumeByYearByCongressman[congressmanId] || mockVolumeByYear,
+      sectorData: mockSectorData[congressmanId] || mockSectorData.P000197
     };
   } catch (error) {
     console.error('Error fetching chart data:', error);

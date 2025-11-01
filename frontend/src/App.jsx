@@ -12,8 +12,7 @@ function App() {
     console.log('Searching for:', query)
   }
 
-
-  return (
+  const DashboardPage = () => (
     <div className="min-h-screen bg-white text-black">
       <Header />
       
@@ -27,9 +26,9 @@ function App() {
         <div className="border-t border-black my-8"></div>
 
         {/* Bottom Half - Two Grids */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 pb-12  ">
+        <div className="grid grid-cols-1 lg:grid-cols-2 pb-12">
           {/* Left Grid - Congressmen */}
-          <div className=" border-black">
+          <div className="border-black">
             <CongressmanGrid />
           </div>
 

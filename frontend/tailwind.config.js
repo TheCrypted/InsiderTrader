@@ -10,9 +10,14 @@ export default {
         'gresearch': {
           'yellow': '#e5fc54',
           'grey-200': '#f5f5f5',
-          'grey-500': '#808080',
+          'grey-500': '#6b7280',
+          'black': '#000000',
+          'white': '#ffffff',
           'vivid-red': '#cf2e2e',
           'vivid-green': '#00d084',
+          'vivid-cyan-blue': '#0693e3',
+          'vivid-purple': '#9b51e0',
+          'pale-cyan-blue': '#8ed1fc',
         }
       },
       fontFamily: {

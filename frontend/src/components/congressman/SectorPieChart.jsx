@@ -9,22 +9,22 @@ const SectorPieChart = ({ data }) => {
     );
   }
 
-  // G-research inspired color palette
+  // G-research color palette from their design system
   const COLORS = [
-    '#00d084', // green
-    '#0693e3', // cyan blue
-    '#9b51e0', // purple
-    '#ff6900', // orange
-    '#fcb900', // amber
-    '#cf2e2e', // red
-    '#8ed1fc', // pale cyan
-    '#e5fc54'  // yellow
+    '#e5fc54', // yellow (primary accent)
+    '#0693e3', // vivid cyan blue
+    '#9b51e0', // vivid purple
+    '#00d084', // vivid green cyan
+    '#8ed1fc', // pale cyan blue
+    '#cf2e2e', // vivid red
+    '#7bdcb5', // light green cyan
+    '#fcb900'  // luminous vivid amber
   ];
 
   return (
     <div className="bg-white rounded-lg shadow-sm p-3 h-full">
       <h3 className="text-xs font-semibold text-gray-600 mb-2">Top Traded Sectors</h3>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         <div className="flex-1">
           <ResponsiveContainer width="100%" height={140}>
             <PieChart>
@@ -33,17 +33,25 @@ const SectorPieChart = ({ data }) => {
                 cx="50%"
                 cy="50%"
                 labelLine={false}
-                label={({ sector, percentage }) => `${sector}: ${percentage}%`}
-                outerRadius={80}
+                label={false}
+                outerRadius={60}
+                innerRadius={20}
                 fill="#8884d8"
-                dataKey="count"
+                dataKey="percentage"
               >
                 {data.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip 
+                formatter={(value) => [`${value}%`, 'Percentage']}
+                contentStyle={{
+                  backgroundColor: 'white',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  padding: '8px'
+                }}
+              />
             </PieChart>
           </ResponsiveContainer>
         </div>

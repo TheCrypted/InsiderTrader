@@ -9,6 +9,10 @@ import TradeVolumeChart from '../components/congressman/TradeVolumeChart';
 import SectorPieChart from '../components/congressman/SectorPieChart';
 import StatsOverview from '../components/congressman/StatsOverview';
 import TradesTable from '../components/congressman/TradesTable';
+import LiveStockPortfolio from '../components/congressman/LiveStockPortfolio';
+import NetWorth from '../components/congressman/NetWorth';
+import CorporateDonors from '../components/congressman/CorporateDonors';
+import ProposedLegislation from '../components/congressman/ProposedLegislation';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 
 const CongressmanTradingPage = () => {
@@ -24,7 +28,7 @@ const CongressmanTradingPage = () => {
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
-                <TradeVolumeChart data={chartData.volumeByYear} />
+                <TradeVolumeChart data={chartData.volumeByYear} loading={loadingTrades} />
               </div>
               <div>
                 <StatsOverview
@@ -45,27 +49,19 @@ const CongressmanTradingPage = () => {
         );
       case 'portfolio':
         return (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            Live Stock Portfolio - Coming soon
-          </div>
+          <LiveStockPortfolio congressmanId={id} loading={loadingTrades} />
         );
       case 'networth':
         return (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            Net Worth - Coming soon
-          </div>
+          <NetWorth congressman={congressman} loading={loadingProfile} />
         );
       case 'donors':
         return (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            Corporate Donors - Coming soon
-          </div>
+          <CorporateDonors congressmanId={id} loading={loadingTrades} />
         );
       case 'legislation':
         return (
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
-            Proposed Legislation - Coming soon
-          </div>
+          <ProposedLegislation congressmanId={id} loading={loadingTrades} />
         );
       default:
         return null;

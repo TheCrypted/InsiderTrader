@@ -10,11 +10,11 @@
 
 @layer components {
   .c-btn {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-full font-medium transition-colors duration-200;
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-full font-medium transition-all duration-200;
   }
   
   .c-btn--yellow {
-    @apply bg-gresearch-yellow text-black hover:bg-opacity-90;
+    @apply bg-gresearch-yellow text-black hover:bg-opacity-90 hover:shadow-md active:scale-95;
   }
   
   .c-text-link {
@@ -23,5 +23,35 @@
   
   .section-py--md {
     @apply py-section-py-md;
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+  
+  .animate-slide-in {
+    animation: slideIn 0.4s ease-out;
   }
 }
