@@ -269,9 +269,8 @@ app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string
 
 // given politician ID- give their last 24 months of trades
 
-app.MapGet("/trades-by/{bioGuideId}", async () => {
-    
-});
+app.MapGet("/trades-by/{bioGuideId}",
+    async (string bioGuideId, AppDbContext db) => await db.Trades.Where(t => t.bioGuideId == bioGuideId).ToListAsync());
 
 app.Run();
 
