@@ -303,8 +303,8 @@ const BrowsePage = () => {
         }
       }
       
-      // Get cosponsors from graphBill or estimate
-      const cosponsors = graphBill?.cosponsors || (baseDetails?.cosponsors) || 0;
+      // Get cosponsors from API bill info, graphBill, or estimate
+      const cosponsors = bill.info?.cosponsors_count || bill.cosponsors_count || graphBill?.cosponsors || (baseDetails?.cosponsors) || 0;
       
       // Get date from API latest_action or graphBill
       const date = bill.latest_action?.date || graphBill?.date || new Date().toISOString().split('T')[0];

@@ -51,7 +51,7 @@ export async function getCongressmanImage(name) {
   }
 }
 
-// Fetch stock company logo - optimized for S&P 500 companies
+// Fetch stock company logo - using multiple fallback services
 export async function getStockLogo(symbol) {
   if (!symbol || symbol === '-') {
     return null;
@@ -61,34 +61,36 @@ export async function getStockLogo(symbol) {
     // Normalize symbol (uppercase, remove any whitespace)
     const normalizedSymbol = symbol.toUpperCase().trim();
     
-    // Use Clearbit Logo API - reliable for S&P 500 companies via company domain
-    const clearbitUrl = `https://logo.clearbit.com/${getCompanyDomain(normalizedSymbol)}`
+    // Use a CORS-friendly proxy service: images.weserv.nl
+    // This proxies Clearbit logos and avoids CORS issues
+    const domain = getCompanyDomain(normalizedSymbol);
+    const proxyUrl = `https://images.weserv.nl/?url=logo.clearbit.com/${domain}&w=200&h=200&output=png`;
     
+    // Test if image loads via proxy (proxy handles CORS)
     return new Promise((resolve) => {
-      // Set timeout for image loading
       const timeout = setTimeout(() => {
-        resolve(null);
+        resolve(null); // Return null on timeout (component will show ticker symbol)
       }, 2000);
       
       const img = new Image();
-      img.crossOrigin = 'anonymous'; // Help with CORS if needed
+      // Proxy handles CORS, so we can test loading
       
       img.onload = () => {
         clearTimeout(timeout);
-        resolve(clearbitUrl);
-      }
+        resolve(proxyUrl);
+      };
       
       img.onerror = () => {
         clearTimeout(timeout);
-        // If Clearbit fails, return null (ticker will be shown as fallback)
+        // If proxy fails, return null (ticker will be shown as fallback)
         resolve(null);
-      }
+      };
       
-      img.src = clearbitUrl;
-    })
+      img.src = proxyUrl;
+    });
   } catch (error) {
-    console.error(`Error fetching logo for ${symbol}:`, error)
-    return null
+    console.error(`Error fetching logo for ${symbol}:`, error);
+    return null;
   }
 }
 
