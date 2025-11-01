@@ -208,7 +208,7 @@ app.MapGet("/politician-info/{bioGuideId}", async (string bioGuideId, AppDbConte
 app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string? fromDate, string? toDate) =>
 {
     using var httpClient = new HttpClient();
-    var apiUrl = $"https://finnhub.io/api/v1/stock/lobbying?symbol={symbol}&from={fromDate ?? "2021-01-01"}&to={toDate ?? "2022-12-31"}&token={TOKEN}";
+    var apiUrl = $"https://finnhub.io/api/v1/stock/lobbying?symbol={symbol}&from={fromDate ?? "2021-01-01"}&to={toDate ?? "2022-12-31"}&token={finnhubToken}";
     var response = await httpClient.GetAsync(apiUrl);
     if (!response.IsSuccessStatusCode)
         return Results.StatusCode((int)response.StatusCode);
