@@ -1,9 +1,11 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { graphCongressmen, graphBills } from '../utils/graphData';
 import { getLegislationDetails } from '../utils/legislationData';
-import { getAllRepresentatives } from '../utils/api';
+import { getAllRepresentativesBasic, loadTradesForBatch } from '../utils/api';
+
+const ITEMS_PER_PAGE = 30; // Number of congressmen to load at a time
 
 const BrowsePage = () => {
   const [activeTab, setActiveTab] = useState('congressmen'); // 'congressmen' or 'legislation'
@@ -11,40 +13,99 @@ const BrowsePage = () => {
   const [congressmanFilter, setCongressmanFilter] = useState('all'); // 'all', 'active', 'inactive', 'party', 'chamber'
   const [legislationFilter, setLegislationFilter] = useState('all'); // 'all', 'passed', 'failed', 'pending', 'sector'
   const [sortBy, setSortBy] = useState('name'); // For congressmen: 'name', 'trades', 'networth'. For bills: 'title', 'odds', 'date'
-  const [apiCongressmen, setApiCongressmen] = useState([]);
+  const [allCongressmenBasic, setAllCongressmenBasic] = useState([]); // All basic data
+  const [loadedCongressmen, setLoadedCongressmen] = useState([]); // Congressmen with trades loaded
+  const [displayedCount, setDisplayedCount] = useState(ITEMS_PER_PAGE); // How many to show
   const [loadingCongressmen, setLoadingCongressmen] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const observerTarget = useRef(null);
 
-  // Fetch all representatives from API
+  // Fetch basic representative info (fast)
   useEffect(() => {
-    const fetchCongressmen = async () => {
+    const fetchCongressmenBasic = async () => {
       try {
         setLoadingCongressmen(true);
-        const reps = await getAllRepresentatives();
-        setApiCongressmen(reps);
+        const reps = await getAllRepresentativesBasic();
+        setAllCongressmenBasic(reps);
+        // Initially load trades for first batch
+        const firstBatch = reps.slice(0, ITEMS_PER_PAGE);
+        const firstBatchWithTrades = await loadTradesForBatch(firstBatch);
+        setLoadedCongressmen(firstBatchWithTrades);
+        setDisplayedCount(ITEMS_PER_PAGE);
       } catch (error) {
         console.error('Error fetching congressmen:', error);
       } finally {
         setLoadingCongressmen(false);
       }
     };
-    fetchCongressmen();
+    fetchCongressmenBasic();
   }, []);
 
-  // Prepare congressmen data - prioritize API data, fallback to graphData
+  // Load more congressmen when scrolling
+  const loadMoreCongressmen = useCallback(async () => {
+    if (loadingMore || displayedCount >= allCongressmenBasic.length) return;
+    
+    setLoadingMore(true);
+    try {
+      const nextBatch = allCongressmenBasic.slice(displayedCount, displayedCount + ITEMS_PER_PAGE);
+      const batchWithTrades = await loadTradesForBatch(nextBatch);
+      
+      setLoadedCongressmen(prev => [...prev, ...batchWithTrades]);
+      setDisplayedCount(prev => prev + ITEMS_PER_PAGE);
+    } catch (error) {
+      console.error('Error loading more congressmen:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [allCongressmenBasic, displayedCount, loadingMore]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore && displayedCount < allCongressmenBasic.length) {
+          loadMoreCongressmen();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const currentTarget = observerTarget.current;
+    if (currentTarget) {
+      observer.observe(currentTarget);
+    }
+
+    return () => {
+      if (currentTarget) {
+        observer.unobserve(currentTarget);
+      }
+    };
+  }, [loadMoreCongressmen, loadingMore, displayedCount, allCongressmenBasic.length]);
+
+  // Prepare congressmen data - use loaded congressmen with trades, merge with remaining basic data
   const allCongressmen = useMemo(() => {
-    // If we have API data, use it; otherwise use graphData
-    const congressmenList = apiCongressmen.length > 0 ? apiCongressmen : graphCongressmen;
+    // Start with loaded congressmen (with trades)
+    const congressmenMap = new Map(loadedCongressmen.map(c => [c.id, c]));
+    
+    // Add remaining basic congressmen (without trades yet)
+    const displayedBasic = allCongressmenBasic.slice(0, displayedCount);
+    displayedBasic.forEach(congressman => {
+      if (!congressmenMap.has(congressman.id)) {
+        congressmenMap.set(congressman.id, congressman);
+      }
+    });
+    
+    const congressmenList = Array.from(congressmenMap.values());
     
     return congressmenList.map(congressman => ({
       ...congressman,
-      // Add mock data fields for display (netWorth, totalTrades) if not present
+      // Add mock data fields for display (netWorth) if not present
       netWorth: congressman.netWorth || (graphCongressmen.find(g => g.id === congressman.id)?.netWorth || 0),
-      totalTrades: congressman.totalTrades || (graphCongressmen.find(g => g.id === congressman.id)?.totalTrades || 0),
       isCurrentMember: congressman.isCurrentMember !== false, // Default to true if not specified
       // Add inactive congressmen (mock some as inactive)
       ...(congressman.id === 'M000303' || congressman.id === 'L000174' ? { isCurrentMember: false } : {})
     }));
-  }, [apiCongressmen]);
+  }, [loadedCongressmen, allCongressmenBasic, displayedCount]);
 
   // Prepare legislation data with odds
   const allLegislation = useMemo(() => {
@@ -368,6 +429,34 @@ const BrowsePage = () => {
                 </Link>
               );
             })}
+            
+            {/* Loading indicator and observer target for infinite scroll */}
+            {loadingCongressmen && (
+              <div className="col-span-full border-b border-r border-black p-8 text-center">
+                <div className="text-gray-500">Loading congressmen...</div>
+              </div>
+            )}
+            
+            {/* Observer target - triggers load more when scrolled into view */}
+            {!loadingCongressmen && displayedCount < allCongressmenBasic.length && (
+              <div 
+                ref={observerTarget}
+                className="col-span-full border-b border-r border-black p-8 text-center"
+              >
+                {loadingMore ? (
+                  <div className="text-gray-500">Loading more congressmen...</div>
+                ) : (
+                  <div className="text-gray-400 text-sm">Scroll to load more</div>
+                )}
+              </div>
+            )}
+            
+            {/* End of list indicator */}
+            {!loadingCongressmen && displayedCount >= allCongressmenBasic.length && allCongressmenBasic.length > 0 && (
+              <div className="col-span-full border-b border-r border-black p-8 text-center">
+                <div className="text-gray-400 text-sm">All {allCongressmenBasic.length} congressmen loaded</div>
+              </div>
+            )}
           </div>
         )}
 

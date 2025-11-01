@@ -1,9 +1,6 @@
 import LoadingSpinner from '../shared/LoadingSpinner';
-import { useCongressmanImage } from '../../hooks/useImage';
 
 const CongressmanProfile = ({ congressman, loading }) => {
-  const { imageUrl, loading: imageLoading } = useCongressmanImage(congressman?.name || '');
-
   if (loading) {
     return (
       <div className="bg-white p-8">
@@ -19,19 +16,21 @@ const CongressmanProfile = ({ congressman, loading }) => {
   return (
     <div className="bg-white">
       {/* Taller rectangular image */}
-      <div className="w-full aspect-[2/3] bg-gray-200 overflow-hidden border-b border-black">
-        {!imageLoading && imageUrl ? (
+      <div className="w-full aspect-[2/3] bg-gray-200 overflow-hidden border-b border-black relative">
+        {congressman.image ? (
           <img 
-            src={imageUrl} 
+            src={congressman.image} 
             alt={congressman.name} 
             className="w-full h-full object-cover object-top" 
+            loading="lazy"
+            referrerPolicy="no-referrer"
             onError={(e) => {
               e.target.style.display = 'none'
               e.target.nextElementSibling.style.display = 'flex'
             }} 
           />
         ) : null}
-        <div className={`w-full h-full flex items-center justify-center bg-gray-300 ${!imageLoading && imageUrl ? 'hidden' : ''}`}>
+        <div className={`w-full h-full flex items-center justify-center bg-gray-300 ${congressman.image ? 'hidden' : 'flex'}`}>
           <span className="text-4xl font-bold text-gray-500">{congressman.name.split(' ').map(n => n[0]).join('')}</span>
         </div>
       </div>
