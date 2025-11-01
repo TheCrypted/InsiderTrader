@@ -21,8 +21,8 @@ const TradeVolumeChart = ({ data, loading }) => {
 
   if (!data || data.length === 0) {
     return (
-      <div className="bg-white p-8 flex items-center justify-center">
-        <p className="text-gray-500">No chart data available</p>
+      <div className="bg-white p-6 flex items-center justify-center border-b border-black">
+        <p className="text-gray-600 text-sm">No trading Activity</p>
       </div>
     );
   }

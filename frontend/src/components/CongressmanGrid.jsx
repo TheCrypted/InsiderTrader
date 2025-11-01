@@ -23,10 +23,12 @@ export default function CongressmanGrid() {
         const data = await Promise.all(
           CONGRESSMAN_IDS.map(id => getCongressman(id))
         )
-        setCongressmen(data)
+        // Filter out null values (congressmen not found)
+        const validCongressmen = data.filter(c => c !== null)
+        setCongressmen(validCongressmen)
       } catch (error) {
         console.error('Error fetching congressmen:', error)
-        // Fallback to empty array or show error state
+        setCongressmen([])
       } finally {
         setLoading(false)
       }
@@ -59,21 +61,28 @@ export default function CongressmanGrid() {
     <div>
       <h2 className="text-2xl font-bold mb-6 px-6 pt-6">Congressional Trading Activity</h2>
       <div className="grid grid-cols-1 md:grid-cols-2">
-        {congressmen.map((congressman, index) => {
-          const isLastInRow = (index + 1) % 2 === 0
-          return (
-            <CongressmanCard 
-              key={congressman.id || index} 
-              name={congressman.name}
-              party={congressman.party}
-              position={`${congressman.chamber} ${congressman.chamber === 'Senate' ? 'Senator' : 'Representative'}`}
-              trades={`${congressman.totalTrades || 0} trades`}
-              id={congressman.id}
-              image={congressman.image}
-              isLast={isLastInRow}
-            />
-          )
-        })}
+        {congressmen.length > 0 ? (
+          congressmen.map((congressman, index) => {
+            if (!congressman) return null;
+            const isLastInRow = (index + 1) % 2 === 0
+            return (
+              <CongressmanCard 
+                key={congressman.id || index} 
+                name={congressman.name || 'Unknown'}
+                party={congressman.party || 'Unknown'}
+                position={`${congressman.chamber || 'Unknown'} ${congressman.chamber === 'Senate' ? 'Senator' : 'Representative'}`}
+                trades={`${congressman.totalTrades || 0} trades`}
+                id={congressman.id}
+                image={congressman.image}
+                isLast={isLastInRow}
+              />
+            )
+          })
+        ) : (
+          <div className="col-span-2 p-6 text-center text-gray-500">
+            No congressmen data available
+          </div>
+        )}
       </div>
     </div>
   )

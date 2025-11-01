@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { mockCongressmen, mockCongressman, mockTrades, mockTradesByCongressman, mockVolumeByYear, mockVolumeByYearByCongressman, mockSectorData } from './mockData';
 
 // Use proxy in development, or direct API URL in production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8080');
@@ -78,10 +77,10 @@ export const getCongressman = async (id) => {
         }
       } catch (tradesError) {
         console.error(`Error fetching trades for congressman ${id}:`, tradesError);
-        // Use mock data as fallback
-        tradeVolume = mockCongressmen[id]?.tradeVolume || 'N/A';
-        totalTrades = mockCongressmen[id]?.totalTrades || 0;
-        lastTraded = mockCongressmen[id]?.lastTraded || 'N/A';
+        // Use default values if trades fetch fails
+        tradeVolume = 'N/A';
+        totalTrades = 0;
+        lastTraded = 'N/A';
       }
       
       // Map API response to frontend format
@@ -93,22 +92,19 @@ export const getCongressman = async (id) => {
         state: apiData.territory,
         image: apiData.imageUrl,
         age: calculateAge(apiData.dateOfBirth),
-        netWorth: mockCongressmen[id]?.netWorth || 'N/A', // Keep mock data for fields not in API
+        netWorth: 'N/A', // Not available from API
         tradeVolume: tradeVolume || 0,
         totalTrades: totalTrades,
         lastTraded: lastTraded,
-        yearsActive: mockCongressmen[id]?.yearsActive || 'N/A',
+        yearsActive: 'N/A', // Not available from API
         isCurrentMember: true,
       };
     }
-    // Fallback to mock data if API returns empty
-    const congressman = mockCongressmen[id] || mockCongressman;
-    return { ...congressman, id };
+    // Return null if congressman not found
+    return null;
   } catch (error) {
-    console.error('Error fetching congressman from API, using mock data:', error);
-    // Fallback to mock data on error
-    const congressman = mockCongressmen[id] || mockCongressman;
-    return { ...congressman, id };
+    console.error('Error fetching congressman from API:', error);
+    return null;
   }
 };
 
@@ -130,13 +126,11 @@ export const getTrades = async (congressmanId) => {
         amount: trade.tradeAmount || 'N/A',
       }));
     }
-    // Return empty array if API returns empty (no fallback to mock data)
-    // return mockTradesByCongressman[congressmanId] || mockTrades; // COMMENTED OUT - no mock data fallback
+    // Return empty array if API returns empty
     return [];
   } catch (error) {
     console.error('Error fetching trades from API, returning empty array:', error);
-    // Return empty array on error (no fallback to mock data)
-    // return mockTradesByCongressman[congressmanId] || mockTrades; // COMMENTED OUT - no mock data fallback
+    // Return empty array on error
     return [];
   }
 };
@@ -298,22 +292,54 @@ export const getAllRepresentatives = async () => {
 
 export const getChartData = async (congressmanId) => {
   try {
-    // Chart data calculation - we can compute this from trades
-    // For now, using mock data as API doesn't provide aggregated chart data
-    // In the future, we could fetch trades and aggregate them
+    // Fetch trades to calculate volume by year with buy/sell breakdown
+    const tradesResponse = await apiClient.get(`/trades-by/${congressmanId}`);
+    const trades = tradesResponse.data || [];
     
-    // Mock delay to simulate API call
-    await new Promise(resolve => setTimeout(resolve, 500));
+    if (trades.length === 0) {
+      return {
+        volumeByYear: [],
+        sectorData: []
+      };
+    }
+    
+    // Process trades to get volume by year with buy/sell breakdown
+    const volumeByYearMap = {};
+    
+    trades.forEach((trade) => {
+      if (!trade.tradedAt || trade.tradedAt.length < 4) return;
+      
+      const year = trade.tradedAt.substring(0, 4);
+      const amount = parseTradeAmount(trade.tradeAmount || '0');
+      const isPurchase = trade.tradeType === 'Purchase' || trade.tradeType === 'Buy';
+      
+      if (!volumeByYearMap[year]) {
+        volumeByYearMap[year] = { year: parseInt(year), buy: 0, sell: 0 };
+      }
+      
+      if (isPurchase) {
+        volumeByYearMap[year].buy += amount;
+      } else {
+        volumeByYearMap[year].sell += amount;
+      }
+    });
+    
+    // Convert to array and sort by year
+    const volumeByYear = Object.values(volumeByYearMap).sort((a, b) => a.year - b.year);
+    
+    // Calculate sector data from trades (simplified - can be enhanced later)
+    // For now, return empty array since trades don't have sector information
+    const sectorData = [];
+    
     return {
-      volumeByYear: mockVolumeByYearByCongressman[congressmanId] || mockVolumeByYear,
-      sectorData: mockSectorData[congressmanId] || mockSectorData.P000197
+      volumeByYear,
+      sectorData
     };
   } catch (error) {
-    console.error('Error fetching chart data, using mock data:', error);
-    // Fallback to mock data
+    console.error('Error fetching chart data:', error);
     return {
-      volumeByYear: mockVolumeByYearByCongressman[congressmanId] || mockVolumeByYear,
-      sectorData: mockSectorData[congressmanId] || mockSectorData.P000197
+      volumeByYear: [],
+      sectorData: []
     };
   }
 };

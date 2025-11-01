@@ -2,7 +2,7 @@ import SearchBar from './SearchBar'
 
 export default function SearchSection({ onSearch }) {
   return (
-    <div className="relative bg-black text-white overflow-hidden min-h-[70vh] flex items-center">
+    <div className="relative bg-black text-white overflow-visible min-h-[70vh] flex items-center" style={{ zIndex: 1000 }}>
       {/* Diagonal split gradient overlay */}
       <div className="absolute inset-0 opacity-30">
         <svg className="w-full h-full" viewBox="0 0 1200 600" preserveAspectRatio="none">
@@ -111,7 +111,7 @@ export default function SearchSection({ onSearch }) {
       </div>
 
       {/* Content */}
-      <div className="relative z-10 w-full max-w-4xl mx-auto px-6">
+      <div className="relative z-10 w-full max-w-4xl mx-auto px-6" style={{ zIndex: 1001 }}>
         <div className="space-y-6">
           <div>
             <h1 className="text-5xl md:text-6xl font-bold mb-4 leading-tight">
@@ -123,7 +123,7 @@ export default function SearchSection({ onSearch }) {
               Search for politicians, stocks, legislation, and trading activity
             </p>
           </div>
-          <div className="w-full max-w-2xl">
+          <div className="w-full max-w-2xl relative" style={{ zIndex: 1002 }}>
             <SearchBar
               placeholder="Search stocks, politicians, and more..."
               onSearch={onSearch}
