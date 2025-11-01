@@ -330,11 +330,34 @@ export const getLegislationDetails = async (billId) => {
       aiSummary: null,
     };
   } else {
-    // Fallback to legislationDetails mock data
-    baseLegislation = legislationDetails[billId] || {
-      ...legislationDetails['H.R.1234'],
+    // Fallback to minimal legislation data - NO MOCK DATA
+    baseLegislation = {
       id: billId,
       title: `${billId} - Legislation`,
+      summary: `${billId} - General sector legislation.`,
+      sponsor: `Sponsor of ${billId}`,
+      status: 'Pending',
+      cosponsors: 0,
+      committees: [],
+      date: new Date().toISOString().split('T')[0],
+      yesPrice: 0.5,
+      noPrice: 0.5,
+      volume24h: 0,
+      liquidity: 0,
+      marketCap: 0,
+      resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      resolutionCriteria: 'This market resolves based on bill passage.',
+      billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+      question: `Will ${billId} pass Congress?`,
+      affectedStocks: [],
+      supportingCongressmen: [], // NO MOCK DATA - empty array
+      activitySummary: {
+        totalTrades: 0,
+        suspiciousTrades: 0,
+        totalVolume: '$0',
+        averageExcessReturn: 0
+      }, // NO MOCK DATA - all zeros
+      aiSummary: null,
     };
   }
   
@@ -346,6 +369,14 @@ export const getLegislationDetails = async (billId) => {
     id: billId,
     // Ensure affectedStocks exists even if empty
     affectedStocks: baseLegislation.affectedStocks || [],
+    // NEVER return mock supportingCongressmen or activitySummary - always use empty/zero
+    supportingCongressmen: [],
+    activitySummary: {
+      totalTrades: 0,
+      suspiciousTrades: 0,
+      totalVolume: '$0',
+      averageExcessReturn: 0
+    },
   };
 };
 

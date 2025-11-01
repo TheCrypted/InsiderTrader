@@ -64,7 +64,7 @@ const BrowsePage = () => {
         // Handle various bill ID formats for matching
         const oddsMap = {};
         polymarketData.forEach(bill => {
-          const billId = bill.bill_id;
+          const billId = bill.bill_id || bill.bill; // Use bill_id if available, fallback to bill field
           if (!billId) return;
           
           // Store with original format

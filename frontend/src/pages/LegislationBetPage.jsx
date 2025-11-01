@@ -5,7 +5,7 @@ import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
-import { getPolymarketOddsForBill, getBillRelevantStocks, getBillInfo } from '../utils/api';
+import { getPolymarketOddsForBill, getBillRelevantStocks, getBillInfo, getCongressman } from '../utils/api';
 
 const LegislationBetPage = () => {
   const { billId } = useParams();
@@ -82,12 +82,14 @@ const LegislationBetPage = () => {
         // If timeout, use graphBill data immediately
         if (!legislationData && graphBill) {
           console.log('Using graphBill data due to timeout');
+          const quickTitle = graphBill.title || `${billId} - Legislation`;
           const quickLegislation = {
             id: billId,
-            title: graphBill.title,
-            question: `Will ${billId} pass Congress?`,
-            summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
+            title: quickTitle,
+            question: `Will ${quickTitle} pass Congress?`, // Use actual bill title
+            summary: `${quickTitle} - ${graphBill.sector} sector legislation.`,
             sponsor: `Sponsor of ${billId}`,
+            sponsorBioguideId: null,
             status: graphBill.status || 'Pending',
             cosponsors: graphBill.cosponsors || 0,
             yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
@@ -138,12 +140,14 @@ const LegislationBetPage = () => {
         if (!legislationData) {
           console.log('Legislation data is null, using graphBill fallback');
           // We already handled this case above with graphBill, but if we reach here, use defaults
+          const defaultTitle = graphBill?.title || `${billId} - Legislation`;
           const defaultLegislation = {
             id: billId,
-            title: graphBill?.title || `${billId} - Legislation`,
-            question: `Will ${billId} pass Congress?`,
-            summary: graphBill?.title || `${billId} - General sector legislation.`,
+            title: defaultTitle,
+            question: `Will ${defaultTitle} pass Congress?`, // Use actual bill title
+            summary: graphBill?.title || `${defaultTitle} - General sector legislation.`,
             sponsor: `Sponsor of ${billId}`,
+            sponsorBioguideId: null, // Will be fetched from billInfo if available
             status: graphBill?.status || 'Pending',
             cosponsors: graphBill?.cosponsors || 0,
             yesPrice: graphBill?.cosponsors > 40 ? 0.65 : graphBill?.cosponsors > 25 ? 0.45 : 0.30,
@@ -197,10 +201,14 @@ const LegislationBetPage = () => {
               noPrice = null;
             }
             
+            const updatedTitle = billInfo?.title || prev.title;
             setLegislation(prev => ({
               ...prev,
-              title: billInfo?.title || prev.title,
+              title: updatedTitle,
+              question: `Will ${updatedTitle} pass Congress?`, // Update question to match title
+              summary: billInfo?.latest_action?.text || prev.summary,
               sponsor: billInfo?.sponsors?.[0]?.name || prev.sponsor,
+              sponsorBioguideId: billInfo?.sponsors?.[0]?.bioguide_id || prev.sponsorBioguideId || null,
               status: actualStatus,
               cosponsors: billInfo?.cosponsors_count || prev.cosponsors,
               yesPrice: yesPrice,
@@ -269,12 +277,14 @@ const LegislationBetPage = () => {
         
         // Ensure all required fields exist
         // Use graphBill data if available, otherwise use legislationData
+        const billTitle = billInfo?.title || graphBill?.title || legislationData?.title || `${billId} - Legislation`;
         const completeLegislation = {
           id: billId,
-          title: billInfo?.title || graphBill?.title || legislationData?.title || `${billId} - Legislation`,
-          question: legislationData?.question || `Will ${billId} pass Congress?`,
-          summary: legislationData?.summary || graphBill?.summary || `${billInfo?.title || graphBill?.title || billId} - ${graphBill?.sector || 'General'} sector legislation.`,
+          title: billTitle,
+          question: `Will ${billTitle} pass Congress?`, // Use actual bill title in question
+          summary: legislationData?.summary || graphBill?.summary || billInfo?.latest_action?.text || `${billTitle} - ${graphBill?.sector || 'General'} sector legislation.`,
           sponsor: billInfo?.sponsors?.[0]?.name || legislationData?.sponsor || `Sponsor of ${billId}`,
+          sponsorBioguideId: billInfo?.sponsors?.[0]?.bioguide_id || null, // Store bioguide_id for fetching sponsor image
           status: actualStatus,
           cosponsors: billInfo?.cosponsors_count || graphBill?.cosponsors || legislationData?.cosponsors || 0,
           yesPrice: yesPrice,
@@ -290,13 +300,13 @@ const LegislationBetPage = () => {
           committees: legislationData?.committees || graphBill?.committees || [],
           date: graphBill?.date || legislationData?.date || new Date().toISOString().split('T')[0],
           affectedStocks: stocksToUse,
-          supportingCongressmen: legislationData?.supportingCongressmen || [],
-          activitySummary: legislationData?.activitySummary || {
+          supportingCongressmen: [], // NO MOCK DATA - always empty (real data would come from API)
+          activitySummary: {
             totalTrades: 0,
             suspiciousTrades: 0,
             totalVolume: '$0',
             averageExcessReturn: 0
-          },
+          }, // NO MOCK DATA - always zeros (real data would come from API)
           aiSummary: legislationData?.aiSummary || null,
           priceHistory: generatePriceHistory(30),
         };
@@ -331,12 +341,14 @@ const LegislationBetPage = () => {
         
         if (graphBill) {
           // Use graphBill data
+          const fallbackTitle = billInfo?.title || graphBill.title || `${billId} - Legislation`;
           setLegislation({
             id: billId,
-            title: billInfo?.title || graphBill.title,
-            question: `Will ${billId} pass Congress?`,
-            summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
+            title: fallbackTitle,
+            question: `Will ${fallbackTitle} pass Congress?`, // Use actual bill title
+            summary: billInfo?.latest_action?.text || `${fallbackTitle} - ${graphBill.sector} sector legislation.`,
             sponsor: billInfo?.sponsors?.[0]?.name || `Sponsor of ${billId}`,
+            sponsorBioguideId: billInfo?.sponsors?.[0]?.bioguide_id || null,
             status: actualStatus,
             cosponsors: billInfo?.cosponsors_count || graphBill.cosponsors || 0,
             yesPrice: yesPrice,
@@ -386,11 +398,15 @@ const LegislationBetPage = () => {
             showOdds = true;
           }
           
+          const finalTitle = billInfo?.title || fallbackData.title || `${billId} - Legislation`;
           setLegislation({
             ...fallbackData,
             id: billId,
-            title: billInfo?.title || fallbackData.title,
+            title: finalTitle,
+            question: `Will ${finalTitle} pass Congress?`, // Use actual bill title
+            summary: billInfo?.latest_action?.text || fallbackData.summary || `${finalTitle} - General sector legislation.`,
             sponsor: billInfo?.sponsors?.[0]?.name || fallbackData.sponsor,
+            sponsorBioguideId: billInfo?.sponsors?.[0]?.bioguide_id || null,
             status: actualStatus,
             cosponsors: billInfo?.cosponsors_count || fallbackData.cosponsors || 0,
             yesPrice: yesPrice,
@@ -456,10 +472,38 @@ const LegislationBetPage = () => {
     };
   }, [legislation?.id, billId]); // Re-fetch if billId changes
 
-  // Get sponsor congressman image (only if legislation is loaded)
-  const sponsorCongressman = legislation?.supportingCongressmen?.find(c => c.role === 'Sponsor') || 
-                               (legislation?.sponsorId && legislation?.supportingCongressmen?.find(c => c.id === legislation.sponsorId)) ||
-                               legislation?.supportingCongressmen?.[0];
+  // Fetch sponsor congressman data if we have bioguide_id
+  const [sponsorCongressman, setSponsorCongressman] = useState(null);
+  
+  useEffect(() => {
+    const fetchSponsor = async () => {
+      if (legislation?.sponsorBioguideId) {
+        try {
+          const sponsorData = await getCongressman(legislation.sponsorBioguideId);
+          if (sponsorData) {
+            setSponsorCongressman({
+              name: sponsorData.name,
+              image: sponsorData.image,
+            });
+          }
+        } catch (error) {
+          console.warn(`Error fetching sponsor data for ${legislation.sponsorBioguideId}:`, error);
+        }
+      } else {
+        // Fallback to supportingCongressmen if no bioguide_id
+        const fallback = legislation?.supportingCongressmen?.find(c => c.role === 'Sponsor') || 
+                         (legislation?.sponsorId && legislation?.supportingCongressmen?.find(c => c.id === legislation.sponsorId)) ||
+                         legislation?.supportingCongressmen?.[0];
+        if (fallback) {
+          setSponsorCongressman(fallback);
+        }
+      }
+    };
+    
+    if (legislation) {
+      fetchSponsor();
+    }
+  }, [legislation?.sponsorBioguideId, legislation?.id]);
 
   // Filter price history based on time range
   const getFilteredHistory = () => {
@@ -588,24 +632,42 @@ const LegislationBetPage = () => {
               </div>
               
               <div className="border-t border-black pt-4">
-                <p className="text-sm text-gray-600 mb-4">{legislation.summary}</p>
+                <p className="text-sm text-gray-600 mb-4">
+                  {legislation.summary && !legislation.summary.includes('General sector legislation') && !legislation.summary.includes('sector legislation')
+                    ? legislation.summary 
+                    : 'N/A'}
+                </p>
                 <div className="grid grid-cols-2 gap-0">
                   <div className="p-3 border-r border-black">
                     <span className="text-xs text-gray-500">Sponsor:</span>
-                    <div className="text-sm font-medium text-gray-900 mt-1">{legislation.sponsor}</div>
+                    <div className="text-sm font-medium text-gray-900 mt-1">
+                      {legislation.sponsor && !legislation.sponsor.includes('Sponsor of') 
+                        ? legislation.sponsor 
+                        : 'N/A'}
+                    </div>
                   </div>
                   <div className="p-3">
                     <span className="text-xs text-gray-500">Status:</span>
-                    <div className="text-sm font-medium text-gray-900 mt-1">{legislation.status}</div>
+                    <div className="text-sm font-medium text-gray-900 mt-1">
+                      {legislation.status && legislation.status !== 'Pending' 
+                        ? legislation.status 
+                        : 'N/A'}
+                    </div>
                   </div>
-                  <div className="p-3 border-r border-black">
+                  <div className="p-3 border-t border-r border-black">
                     <span className="text-xs text-gray-500">Cosponsors:</span>
-                    <div className="text-sm font-medium text-gray-900 mt-1">{legislation.cosponsors}</div>
+                    <div className="text-sm font-medium text-gray-900 mt-1">
+                      {legislation.cosponsors && legislation.cosponsors > 0 
+                        ? legislation.cosponsors 
+                        : 'N/A'}
+                    </div>
                   </div>
-                  <div className="p-3">
+                  <div className="p-3 border-t border-black">
                     <span className="text-xs text-gray-500">Resolution Date:</span>
                     <div className="text-sm font-medium text-gray-900 mt-1">
-                      {new Date(legislation.resolutionDate).toLocaleDateString()}
+                      {legislation.resolutionDate && legislation.resolutionDate !== new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                        ? new Date(legislation.resolutionDate).toLocaleDateString()
+                        : 'N/A'}
                     </div>
                   </div>
                 </div>
@@ -839,21 +901,24 @@ const LegislationBetPage = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Congressmen Supporters</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {legislation.supportingCongressmen?.length || 0} supporters with trading activity
+                    {legislation.supportingCongressmen && legislation.supportingCongressmen.length > 0
+                      ? `${legislation.supportingCongressmen.length} supporters with trading activity`
+                      : 'N/A'}
                   </p>
                 </div>
-                {legislation.activitySummary && (
+                {legislation.activitySummary && legislation.activitySummary.totalTrades > 0 && (
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Trades</div>
                     <div className="text-xl font-semibold text-gresearch-vivid-red">
-                      {legislation.activitySummary.suspiciousTrades}
+                      {legislation.activitySummary.suspiciousTrades || 'N/A'}
                     </div>
                   </div>
                 )}
               </div>
               
+              {legislation.supportingCongressmen && legislation.supportingCongressmen.length > 0 ? (
               <div className="space-y-0">
-                {legislation.supportingCongressmen && legislation.supportingCongressmen.map((congressman, idx) => (
+                {legislation.supportingCongressmen.map((congressman, idx) => (
                   <div key={idx} className={`border-b border-black p-4 ${idx === legislation.supportingCongressmen.length - 1 ? 'border-b-0' : ''}`}>
                     <div className="flex items-stretch gap-4 mb-3 border-b border-black pb-3 relative" style={{ minHeight: '64px' }}>
                       <div className="w-16 h-16 border border-black flex-shrink-0 self-center relative flex items-center justify-center bg-gray-200">
@@ -956,7 +1021,12 @@ const LegislationBetPage = () => {
                   </div>
                 ))}
               </div>
-
+              ) : (
+                <div className="p-6 text-center text-gray-500">
+                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
+                  <p className="text-sm text-gray-500">No supporter data available</p>
+                </div>
+              )}
             </div>
 
             {/* Activity Summary */}
@@ -982,7 +1052,10 @@ const LegislationBetPage = () => {
                   </div>
                 </div>
               ) : (
-                <div className="text-sm text-gray-600">No activity summary available</div>
+                <div className="p-6 text-center text-gray-500">
+                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
+                  <p className="text-sm text-gray-500">No activity summary available</p>
+                </div>
               )}
             </div>
           </div>

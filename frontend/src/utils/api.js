@@ -507,13 +507,20 @@ const parseBillId = (billId) => {
 // Fetch Polymarket odds for bills
 export const getPolymarketBills = async () => {
   try {
-    const response = await modelApiClient.get('/polymarket_bills');
-    if (response.data && response.data.results) {
-      return response.data.results;
+    const response = await modelApiClient.get('/bills');
+    if (response.data && Array.isArray(response.data)) {
+      // Map /bills response to expected format
+      return response.data.map(bill => ({
+        bill_id: bill.bill_id || bill.bill, // Use bill_id if available, fallback to bill field
+        yes_percentage: bill.yes_percent || 50, // yes_percent from API
+        no_percentage: bill.yes_percent !== undefined ? (100 - bill.yes_percent) : 50, // Calculate no_percentage
+        volume: null, // Not provided by /bills endpoint
+        source: 'polymarket'
+      }));
     }
     return [];
   } catch (error) {
-    console.error('Error fetching Polymarket bills:', error);
+    console.error('Error fetching bills:', error);
     return [];
   }
 };
@@ -553,22 +560,24 @@ export const getPolymarketOddsForBill = async (billId) => {
     const billIdNoLeadingZerosNorm = normalizeBillId(billIdNoLeadingZeros);
     
     // Try to find matching bill with multiple strategies
+    // Check both bill_id and bill fields (from /bills endpoint)
     const bill = allBills.find(b => {
-      if (!b.bill_id) return false;
+      const bId = b.bill_id || b.bill; // Try bill_id first, fallback to bill field
+      if (!bId) return false;
       
       // Try exact match
-      if (b.bill_id === billId) return true;
+      if (bId === billId) return true;
       
       // Try normalized match
-      const bNormalized = normalizeBillId(b.bill_id);
+      const bNormalized = normalizeBillId(bId);
       if (bNormalized === billIdNormalized) return true;
       
       // Try standardized match
-      const bStandardized = normalizeStandard(b.bill_id);
+      const bStandardized = normalizeStandard(bId);
       if (bStandardized === billIdStandardized) return true;
       
       // Try without leading zeros
-      const bNoLeadingZeros = removeLeadingZeros(b.bill_id);
+      const bNoLeadingZeros = removeLeadingZeros(bId);
       if (bNoLeadingZeros === billIdNoLeadingZeros) return true;
       
       const bNoLeadingZerosNorm = normalizeBillId(bNoLeadingZeros);
@@ -580,7 +589,7 @@ export const getPolymarketOddsForBill = async (billId) => {
     if (bill) {
       console.log(`Found Polymarket odds for ${billId}: Yes ${bill.yes_percentage}%, No ${bill.no_percentage}%`);
     } else {
-      console.log(`No Polymarket odds found for ${billId}. Available bills:`, allBills.map(b => b.bill_id));
+      console.log(`No Polymarket odds found for ${billId}. Available bills:`, allBills.map(b => b.bill_id || b.bill));
     }
     
     return bill || null;
