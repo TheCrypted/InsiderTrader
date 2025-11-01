@@ -906,3 +906,201 @@ def get_bill_cosponsors(
         "cosponsor_count": len(cosponsors),
         "cosponsors": cosponsors,
     })
+
+# ---------- Helpers: cosponsor fetch as an internal function ----------
+def get_cosponsors_data(
+    bill_type: str,
+    bill_number: int,
+    congress: Optional[int] = None,
+) -> list:
+    """Return a list of cosponsor dicts from Congress.gov; resilient to shape."""
+    congress_num = congress or CONGRESS
+    endpoint = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type.lower()}/{bill_number}/cosponsors"
+    params = {"api_key": CONGRESS_API_KEY, "format": "json", "limit": 250}
+    try:
+        resp = _get(endpoint, params=params)
+        data = resp.json()
+    except Exception:
+        return []
+
+    items = data.get("cosponsors") or data.get("items") or []
+    if isinstance(items, dict):
+        items = items.get("cosponsors") or items.get("items") or []
+
+    out = []
+    for c in items:
+        out.append({
+            "fullName": c.get("fullName"),
+            "party": c.get("party"),
+            "state": c.get("state"),
+            "district": c.get("district"),
+            "sponsorshipDate": c.get("sponsorshipDate"),
+            "withdrawnDate": c.get("withdrawnDate"),
+            "bioguideId": c.get("bioguideId"),
+        })
+    return out
+
+# ---------- Helpers: ID & node normalization ----------
+def _person_key(p: Dict[str, Any]) -> str:
+    """Stable person node id: prefer bioguide; fallback to name+state+district."""
+    bid = (p.get("bioguide_id") or p.get("bioguideId") or "").strip()
+    if bid:
+        return f"person:{bid}"
+    name = (p.get("name") or p.get("fullName") or "Unknown").strip()
+    state = (p.get("state") or "").strip()
+    dist  = (p.get("district") or "").strip() or "-"
+    return f"person:{name}|{state}|{dist}"
+
+def _person_label(p: Dict[str, Any]) -> str:
+    name = p.get("name") or p.get("fullName") or "Unknown"
+    party = p.get("party") or ""
+    state = p.get("state") or ""
+    dist  = p.get("district") or ""
+    tag = f"{party}-{state}{('-'+str(dist)) if dist else ''}".strip("-")
+    return f"{name} ({tag})" if tag.strip(" -") else name
+
+def _bill_node_id(bill_type: str, bill_number: int) -> str:
+    return f"bill:{bill_type.upper()}.{bill_number}"
+
+# ---------- Graph builder for one bill ----------
+def build_bill_graph_for_single(
+    bill_type: str,
+    bill_number: int,
+    congress: Optional[int] = None,
+) -> Dict[str, Any]:
+    info = get_bill_info_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+    if isinstance(info, dict) and "error" in info:
+        # return empty graph for this bill if not found
+        return {"nodes": [], "edges": []}
+
+    cosponsors = get_cosponsors_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+
+    bill_id = info["bill_id"]
+    bill_node_id = _bill_node_id(bill_type, bill_number)
+    bill_title = info.get("title") or bill_id
+
+    nodes = [{
+        "id": bill_node_id,
+        "type": "bill",
+        "bill_id": bill_id,
+        "label": bill_title,
+        "policy_area": info.get("policy_area"),
+        "introduced_date": info.get("introduced_date"),
+    }]
+    edges = []
+
+    # Sponsors (from info['sponsors'])
+    for s in info.get("sponsors", []):
+        person_node_id = _person_key(s)
+        nodes.append({
+            "id": person_node_id,
+            "type": "person",
+            "label": _person_label(s),
+            "party": s.get("party"),
+            "state": s.get("state"),
+            "district": s.get("district"),
+            "bioguide_id": s.get("bioguide_id"),
+        })
+        edges.append({
+            "source": person_node_id,
+            "target": bill_node_id,
+            "relation": "sponsor",
+        })
+
+    # Cosponsors
+    for c in cosponsors:
+        person_node_id = _person_key(c)
+        nodes.append({
+            "id": person_node_id,
+            "type": "person",
+            "label": _person_label(c),
+            "party": c.get("party"),
+            "state": c.get("state"),
+            "district": c.get("district"),
+            "bioguide_id": c.get("bioguideId"),
+        })
+        edges.append({
+            "source": person_node_id,
+            "target": bill_node_id,
+            "relation": "cosponsor",
+            "sponsorship_date": c.get("sponsorshipDate"),
+            "withdrawn_date": c.get("withdrawnDate"),
+        })
+
+    # Deduplicate nodes by id and edges by (source,target,relation)
+    uniq_nodes: Dict[str, Dict[str, Any]] = {}
+    for n in nodes:
+        uniq_nodes[n["id"]] = n
+    seen_edges: Set[tuple] = set()
+    uniq_edges = []
+    for e in edges:
+        key = (e["source"], e["target"], e["relation"])
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        uniq_edges.append(e)
+
+    return {"nodes": list(uniq_nodes.values()), "edges": uniq_edges}
+
+# ---------- Graph builder for many bills ----------
+def build_bill_graph(
+    bills: list,      # list of dicts with keys bill_type, bill_number
+    congress: Optional[int] = None
+) -> Dict[str, Any]:
+    all_nodes: Dict[str, Dict[str, Any]] = {}
+    all_edges: Set[tuple] = set()
+    for b in bills:
+        bt = b.get("bill_type")
+        bn = b.get("bill_number")
+        if not bt or not bn:
+            continue
+        g = build_bill_graph_for_single(bt, int(bn), congress=congress)
+        for n in g["nodes"]:
+            all_nodes[n["id"]] = n
+        for e in g["edges"]:
+            all_edges.add((e["source"], e["target"], e.get("relation", "")))
+    return {
+        "nodes": list(all_nodes.values()),
+        "edges": [{"source": s, "target": t, "relation": r} for (s, t, r) in sorted(all_edges)],
+    }
+
+# ---------- Endpoint: GET /graph ----------
+@app.get("/graph")
+def get_graph(
+    source: str = Query("polymarket", description="polymarket|manual"),
+    bills: Optional[str] = Query(
+        None,
+        description="Comma-separated list like 'hr.3076,s.1260'. Used when source=manual."
+    ),
+    congress: Optional[int] = Query(None, description="Congress number (default 117)"),
+    limit: int = Query(10, ge=1, le=200, description="Max bills to include from source")
+):
+    """
+    Return a JSON graph with:
+      - nodes: [{id, type: 'bill'|'person', label, ...}]
+      - edges: [{source, target, relation: 'sponsor'|'cosponsor'}]
+    """
+    bill_list = []
+
+    if source.lower() == "manual":
+        if not bills:
+            raise HTTPException(status_code=400, detail="Provide ?bills=hr.XXXX,s.YYYY when source=manual")
+        for token in bills.split(","):
+            token = token.strip()
+            m = re.match(r"^(hr|s|hjres|sjres|hres|sres|hconres|sconres)\.(\d{1,5})$", token, flags=re.IGNORECASE)
+            if not m:
+                continue
+            bill_list.append({"bill_type": m.group(1).lower(), "bill_number": int(m.group(2))})
+        if not bill_list:
+            raise HTTPException(status_code=400, detail="No valid bills parsed from input.")
+    else:
+        # source = polymarket (default)
+        markets = fetch_bills(congress=congress)  # uses your Polymarket fetch with parsing
+        for mkt in markets:
+            if mkt.get("bill_type") and mkt.get("bill_number"):
+                bill_list.append({"bill_type": mkt["bill_type"], "bill_number": int(mkt["bill_number"])})
+            if len(bill_list) >= limit:
+                break
+
+    graph = build_bill_graph(bill_list, congress=congress)
+    return JSONResponse(graph)
