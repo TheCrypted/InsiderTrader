@@ -3,12 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
+import { getLegislationDetails } from '../utils/legislationData';
 
 const LegislationBetPage = () => {
   const { billId } = useParams();
-  const [selectedOutcome, setSelectedOutcome] = useState(null); // 'yes' or 'no'
-  const [betAmount, setBetAmount] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [timeRange, setTimeRange] = useState('7d'); // '1d', '7d', '30d', 'all'
   const [aiSummary, setAiSummary] = useState(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -42,53 +40,12 @@ const LegislationBetPage = () => {
     return data;
   };
 
-  // Mock legislation data - in real app, fetch from API
-  const mockLegislation = {
-    'H.R.1234': {
-      id: 'H.R.1234',
-      title: 'AI Transparency and Accountability Act',
-      question: 'Will the AI Transparency and Accountability Act pass Congress?',
-      summary: 'Requires transparency in AI decision-making processes and establishes accountability frameworks for AI systems used in government and private sectors.',
-      sponsor: 'Rep. Nancy Pelosi',
-      status: 'In Committee',
-      date: '2025-09-15',
-      committees: ['Science, Space, and Technology', 'Energy and Commerce'],
-      cosponsors: 45,
-      yesPrice: 0.68, // 68% probability
-      noPrice: 0.32, // 32% probability
-      volume24h: 245000,
-      liquidity: 125000,
-      marketCap: 890000,
-      resolutionDate: '2025-12-31',
-      resolutionCriteria: 'This market resolves to YES if the bill is signed into law before the resolution date. It resolves to NO if the bill fails to pass, is vetoed, or the resolution date passes without enactment.',
-      priceHistory: generatePriceHistory(30),
-      billUrl: 'https://www.congress.gov/bill/118th-congress/house-bill/1234',
-      aiSummary: 'This legislation mandates comprehensive transparency requirements for AI systems deployed by government agencies and private entities. It establishes accountability frameworks including mandatory disclosure of AI decision-making processes, algorithmic bias assessments, and consumer notification protocols. The bill creates new regulatory oversight mechanisms through the FTC and requires periodic audits of high-risk AI applications.'
-    },
-    'H.R.2456': {
-      id: 'H.R.2456',
-      title: 'Financial Technology Innovation Act',
-      question: 'Will the Financial Technology Innovation Act pass Congress?',
-      summary: 'Promotes innovation in financial technology while ensuring consumer protection and regulatory compliance.',
-      sponsor: 'Rep. Ro Khanna',
-      status: 'In Committee',
-      date: '2025-08-20',
-      committees: ['Financial Services'],
-      cosponsors: 32,
-      yesPrice: 0.42,
-      noPrice: 0.58,
-      volume24h: 189000,
-      liquidity: 98000,
-      marketCap: 645000,
-      resolutionDate: '2025-12-31',
-      resolutionCriteria: 'This market resolves to YES if the bill is signed into law before the resolution date.',
-      priceHistory: generatePriceHistory(30),
-      billUrl: 'https://www.congress.gov/bill/118th-congress/house-bill/2456',
-      aiSummary: 'This act promotes innovation in financial technology by streamlining regulatory processes, establishing sandbox programs for fintech startups, and creating new pathways for digital banking services. It balances innovation with consumer protection through enhanced disclosure requirements and regulatory coordination between federal agencies. The legislation provides funding for fintech research and development initiatives.'
-    }
+  // Get legislation details with stocks, congressmen, and trading activity
+  const legislationData = getLegislationDetails(billId);
+  const legislation = {
+    ...legislationData,
+    priceHistory: generatePriceHistory(30)
   };
-
-  const legislation = mockLegislation[billId] || mockLegislation['H.R.1234'];
 
   // Filter price history based on time range
   const getFilteredHistory = () => {
@@ -125,20 +82,6 @@ const LegislationBetPage = () => {
 
   const formatPercent = (value) => {
     return `${(value * 100).toFixed(1)}%`;
-  };
-
-  const handlePlaceBet = () => {
-    if (!selectedOutcome || !betAmount || parseFloat(betAmount) <= 0) {
-      return;
-    }
-    setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      alert(`Bet placed: ${formatCurrency(parseFloat(betAmount))} on ${selectedOutcome === 'yes' ? 'YES' : 'NO'}`);
-      setBetAmount('');
-      setSelectedOutcome(null);
-    }, 1000);
   };
 
   const handleAISummarize = () => {
@@ -322,110 +265,211 @@ const LegislationBetPage = () => {
               </div>
             </div>
 
-            {/* Outcome Cards */}
+            {/* Market Prediction Cards - Information Only */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* YES Outcome */}
-              <div 
-                className={`bg-white rounded-lg shadow-sm p-6 border-2 transition-all cursor-pointer ${
-                  selectedOutcome === 'yes' 
-                    ? 'border-gresearch-yellow bg-gresearch-yellow/5' 
-                    : 'border-transparent hover:border-gray-300'
-                }`}
-                onClick={() => setSelectedOutcome('yes')}
-              >
+              <div className="bg-white rounded-lg shadow-sm p-6 border-2 border-gray-200">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-2xl font-bold text-gray-900">YES</div>
                   <div className="text-3xl font-light text-gray-900">{formatPercent(legislation.yesPrice)}</div>
                 </div>
-                <div className="text-sm text-gray-500 mb-4">Buy YES shares to bet it passes</div>
+                <div className="text-sm text-gray-500 mb-4">Market prediction: Bill will pass</div>
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gresearch-vivid-green transition-all"
                     style={{ width: `${legislation.yesPrice * 100}%` }}
                   />
                 </div>
-                <div className="mt-4 text-xs text-gray-400">
-                  Current price: ${legislation.yesPrice.toFixed(2)} per share
+                <div className="mt-4 text-xs text-gray-500">
+                  Based on current market sentiment and analysis
                 </div>
               </div>
 
               {/* NO Outcome */}
-              <div 
-                className={`bg-white rounded-lg shadow-sm p-6 border-2 transition-all cursor-pointer ${
-                  selectedOutcome === 'no' 
-                    ? 'border-gresearch-yellow bg-gresearch-yellow/5' 
-                    : 'border-transparent hover:border-gray-300'
-                }`}
-                onClick={() => setSelectedOutcome('no')}
-              >
+              <div className="bg-white rounded-lg shadow-sm p-6 border-2 border-gray-200">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-2xl font-bold text-gray-900">NO</div>
                   <div className="text-3xl font-light text-gray-900">{formatPercent(legislation.noPrice)}</div>
                 </div>
-                <div className="text-sm text-gray-500 mb-4">Buy NO shares to bet it fails</div>
+                <div className="text-sm text-gray-500 mb-4">Market prediction: Bill will fail</div>
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-gresearch-vivid-red transition-all"
                     style={{ width: `${legislation.noPrice * 100}%` }}
                   />
                 </div>
-                <div className="mt-4 text-xs text-gray-400">
-                  Current price: ${legislation.noPrice.toFixed(2)} per share
+                <div className="mt-4 text-xs text-gray-500">
+                  Based on current market sentiment and analysis
                 </div>
               </div>
             </div>
 
-            {/* Trading Interface */}
-            {selectedOutcome && (
-              <div className="bg-white rounded-lg shadow-sm p-6 animate-fade-in">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Place {selectedOutcome === 'yes' ? 'YES' : 'NO'} Order
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Amount ($)
-                    </label>
-                    <input
-                      type="number"
-                      value={betAmount}
-                      onChange={(e) => setBetAmount(e.target.value)}
-                      placeholder="0.00"
-                      min="0"
-                      step="0.01"
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gresearch-yellow focus:border-transparent"
-                    />
-                  </div>
-                  {betAmount && parseFloat(betAmount) > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-4 text-sm">
-                      <div className="flex justify-between mb-2">
-                        <span className="text-gray-600">Shares:</span>
-                        <span className="font-semibold text-gray-900">
-                          {(parseFloat(betAmount) / (selectedOutcome === 'yes' ? legislation.yesPrice : legislation.noPrice)).toFixed(2)}
-                        </span>
+            {/* Affected Stocks Section */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Affected Stocks</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Companies that would be impacted by this legislation
+              </p>
+              <div className="space-y-3">
+                {legislation.affectedStocks && legislation.affectedStocks.map((stock, idx) => (
+                  <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                          <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-bold text-gray-700">
+                            {stock.symbol}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-900">{stock.name}</div>
+                            <div className="text-xs text-gray-500">{stock.sector}</div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-2">{stock.relevance}</p>
                       </div>
-                      <div className="flex justify-between mb-2">
-                        <span className="text-gray-600">Price per share:</span>
-                        <span className="font-semibold text-gray-900">
-                          ${(selectedOutcome === 'yes' ? legislation.yesPrice : legislation.noPrice).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Total cost:</span>
-                        <span className="font-semibold text-gray-900">{formatCurrency(parseFloat(betAmount))}</span>
+                      <div className="text-right ml-4">
+                        <div className="text-lg font-semibold text-gray-900">${stock.currentPrice.toFixed(2)}</div>
+                        <div className={`text-sm font-medium ${stock.change >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'}`}>
+                          {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%)
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">Mkt Cap: {stock.marketCap}</div>
                       </div>
                     </div>
-                  )}
-                  <button
-                    onClick={handlePlaceBet}
-                    disabled={!betAmount || parseFloat(betAmount) <= 0 || isLoading}
-                    className="w-full c-btn c-btn--yellow disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? 'Processing...' : `Buy ${selectedOutcome === 'yes' ? 'YES' : 'NO'}`}
-                  </button>
-                </div>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
+
+            {/* Congressmen Supporters Section */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Congressmen Supporters</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {legislation.supportingCongressmen?.length || 0} supporters with trading activity
+                  </p>
+                </div>
+                {legislation.activitySummary && (
+                  <div className="text-right">
+                    <div className="text-xs text-gray-500">Suspicious Trades</div>
+                    <div className="text-xl font-semibold text-gresearch-vivid-red">
+                      {legislation.activitySummary.suspiciousTrades}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="space-y-4">
+                {legislation.supportingCongressmen && legislation.supportingCongressmen.map((congressman, idx) => (
+                  <div key={idx} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-start gap-4 mb-3">
+                      <img 
+                        src={congressman.image} 
+                        alt={congressman.name}
+                        className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Link
+                            to={`/congressman/${congressman.id}/trading`}
+                            className="font-semibold text-gray-900 hover:text-gresearch-vivid-cyan-blue transition-colors"
+                          >
+                            {congressman.name}
+                          </Link>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            congressman.party === 'Democratic' 
+                              ? 'bg-blue-100 text-blue-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {congressman.party}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                            {congressman.role}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {congressman.chamber} / {congressman.state}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {congressman.tradingActivity && congressman.tradingActivity.length > 0 ? (
+                      <div className="mt-3 border-t border-gray-200 pt-3">
+                        <div className="text-xs font-semibold text-gray-700 mb-2">Trading Activity:</div>
+                        <div className="space-y-2">
+                          {congressman.tradingActivity.map((trade, tradeIdx) => (
+                            <div key={tradeIdx} className="bg-red-50 border border-red-200 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-900">{trade.stock}</span>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    trade.action === 'Purchase' 
+                                      ? 'bg-gresearch-yellow/20 text-gray-900 border border-gresearch-yellow/40'
+                                      : 'bg-gresearch-vivid-red/20 text-gresearch-vivid-red border border-gresearch-vivid-red/40'
+                                  }`}>
+                                    {trade.action}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-200">
+                                    {trade.status}
+                                  </span>
+                                </div>
+                                <span className={`text-sm font-semibold ${
+                                  trade.excessReturn >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'
+                                }`}>
+                                  {trade.excessReturn >= 0 ? '+' : ''}{trade.excessReturn.toFixed(1)}% return
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 mt-2">
+                                <div>
+                                  <span className="text-gray-500">Date:</span> {new Date(trade.date).toLocaleDateString()}
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">Amount:</span> {trade.amount}
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">{trade.daysBeforeBill} days before bill</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 border-t border-gray-200 pt-3">
+                        <div className="text-xs text-gray-500">No trading activity on affected stocks</div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Activity Summary */}
+              {legislation.activitySummary && legislation.activitySummary.totalTrades > 0 && (
+                <div className="mt-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">Activity Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div className="text-gray-500 mb-1">Total Trades</div>
+                      <div className="font-semibold text-gray-900">{legislation.activitySummary.totalTrades}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 mb-1">Suspicious</div>
+                      <div className="font-semibold text-gresearch-vivid-red">{legislation.activitySummary.suspiciousTrades}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 mb-1">Total Volume</div>
+                      <div className="font-semibold text-gray-900">{legislation.activitySummary.totalVolume}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-500 mb-1">Avg Excess Return</div>
+                      <div className="font-semibold text-gresearch-vivid-green">+{legislation.activitySummary.averageExcessReturn.toFixed(1)}%</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Resolution Criteria */}
             <div className="bg-white rounded-lg shadow-sm p-6">
