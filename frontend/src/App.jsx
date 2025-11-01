@@ -16,17 +16,16 @@ function App() {
     <div className="min-h-screen bg-white text-black">
       <Header />
       
-      <main className="container mx-auto px-6">
+      <main>
         {/* Top Half - Search Section */}
-        <div className="h-[50vh] flex items-center justify-center">
-          <SearchSection onSearch={handleSearch} />
-        </div>
+        <SearchSection onSearch={handleSearch} />
 
         {/* Separator Line */}
-        <div className="border-t border-black my-8"></div>
+        <div className="border-t border-black"></div>
 
         {/* Bottom Half - Two Grids */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 pb-12">
+        <div className="container mx-auto px-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 pb-12 pt-8">
           {/* Left Grid - Congressmen */}
           <div className="border-black">
             <CongressmanGrid />
@@ -36,6 +35,7 @@ function App() {
           <div>
             <StockGrid />
           </div>
+        </div>
         </div>
       </main>
     </div>

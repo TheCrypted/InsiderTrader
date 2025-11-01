@@ -2,10 +2,13 @@ export default function NavLink({ children, hasDropdown = false, href = "#", cla
   return (
     <a 
       href={href} 
-      className={`h-full flex items-center justify-center px-6 transition relative group ${isActive ? 'bg-gray-200' : 'hover:bg-gray-200'} ${className}`}
+      className={`h-full flex items-center justify-center px-6 transition relative group text-white ${
+        isActive 
+          ? 'bg-gray-800' 
+          : 'hover:bg-stone-900'
+      } ${className}`}
     >
       {/* Left vertical line on hover */}
-      <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"></span>
       
       {children}
       {hasDropdown && (
@@ -15,7 +18,6 @@ export default function NavLink({ children, hasDropdown = false, href = "#", cla
       )}
       
       {/* Right vertical line on hover */}
-      <span className="absolute right-0 top-0 bottom-0 w-0.5 bg-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"></span>
     </a>
   )
 }
