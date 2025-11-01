@@ -1,0 +1,10 @@
+services:
+  insidertradingapi:
+    build: .
+    image: insider-trading-api:latest
+    container_name: insidertradingapi
+    ports:
+      - "8080:8080"
+    environment:
+      # Redundant with Dockerfile ENV, but explicit here for clarity/overrides
+      ASPNETCORE_URLS: "http://+:8080"
