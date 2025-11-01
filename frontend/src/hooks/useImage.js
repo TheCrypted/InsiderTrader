@@ -32,19 +32,35 @@ export function useStockLogo(symbol) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!symbol || symbol === '-') {
+      setLogoUrl(null)
+      setLoading(false)
+      return
+    }
+    
     let isMounted = true
     
     async function fetchLogo() {
       setLoading(true)
-      // Try API first, then fallback to logo services
-      let url = await getStockLogoFromAPI(symbol)
-      if (!url) {
-        url = await getStockLogo(symbol)
-      }
+      setLogoUrl(null) // Reset logo URL
       
-      if (isMounted) {
-        setLogoUrl(url)
-        setLoading(false)
+      try {
+        // Try API first, then fallback to logo services
+        let url = await getStockLogoFromAPI(symbol)
+        if (!url) {
+          url = await getStockLogo(symbol)
+        }
+        
+        if (isMounted) {
+          setLogoUrl(url) // Will be null if no logo found
+          setLoading(false)
+        }
+      } catch (error) {
+        console.error(`Error fetching logo for ${symbol}:`, error)
+        if (isMounted) {
+          setLogoUrl(null)
+          setLoading(false)
+        }
       }
     }
     

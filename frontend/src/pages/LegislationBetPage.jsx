@@ -11,9 +11,13 @@ const LegislationBetPage = () => {
   const [timeRange, setTimeRange] = useState('7d'); // '1d', '7d', '30d', 'all'
   const [aiSummary, setAiSummary] = useState(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  // Chart hover interaction state (from friend's changes)
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [hoverPosition, setHoverPosition] = useState(null);
   const chartContainerRef = useRef(null);
+  // Async data loading state (from our changes)
+  const [legislation, setLegislation] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Generate historical price data
   const generatePriceHistory = (days = 30) => {
@@ -44,12 +48,179 @@ const LegislationBetPage = () => {
     return data;
   };
 
-  // Get legislation details with stocks, congressmen, and trading activity
-  const legislationData = getLegislationDetails(billId);
-  const legislation = {
-    ...legislationData,
-    priceHistory: generatePriceHistory(30)
-  };
+  // Fetch legislation details from API with fallback to mock data
+  useEffect(() => {
+    const fetchLegislation = async () => {
+      if (!billId) {
+        console.error('No billId provided');
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        console.log(`Fetching legislation for billId: ${billId}`);
+        
+        // Also try to get data from graphBills for this bill
+        const { graphBills } = await import('../utils/graphData');
+        const graphBill = graphBills.find(b => b.id === billId);
+        
+        // Fetch legislation data - this will be fast as stock fetching has timeout
+        const legislationDataPromise = getLegislationDetails(billId);
+        
+        // Set a timeout to prevent page from hanging
+        const timeoutPromise = new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(null); // Return null if timeout
+          }, 2000); // 2 second max wait
+        });
+        
+        const legislationData = await Promise.race([legislationDataPromise, timeoutPromise]);
+        
+        // If timeout, use graphBill data immediately
+        if (!legislationData && graphBill) {
+          console.log('Using graphBill data due to timeout');
+          const quickLegislation = {
+            id: billId,
+            title: graphBill.title,
+            question: `Will ${billId} pass Congress?`,
+            summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
+            sponsor: `Sponsor of ${billId}`,
+            status: graphBill.status || 'Pending',
+            cosponsors: graphBill.cosponsors || 0,
+            yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
+            noPrice: graphBill.cosponsors > 40 ? 0.35 : graphBill.cosponsors > 25 ? 0.55 : 0.70,
+            volume24h: 0,
+            liquidity: 0,
+            marketCap: 0,
+            resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            resolutionCriteria: 'This market resolves based on bill passage.',
+            billUrl: `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            committees: graphBill.committees || [],
+            date: graphBill.date || new Date().toISOString().split('T')[0],
+            affectedStocks: [],
+            supportingCongressmen: [],
+            activitySummary: {
+              totalTrades: 0,
+              suspiciousTrades: 0,
+              totalVolume: '$0',
+              averageExcessReturn: 0
+            },
+            aiSummary: null,
+          };
+          
+          setLegislation({
+            ...quickLegislation,
+            priceHistory: generatePriceHistory(30),
+          });
+          
+          // Continue fetching in background and update when ready
+          legislationDataPromise.then((fullData) => {
+            if (fullData) {
+              setLegislation({
+                ...fullData,
+                priceHistory: generatePriceHistory(30),
+              });
+            }
+          }).catch(() => {
+            // Already set quickLegislation, so ignore error
+          });
+          
+          setLoading(false);
+          return;
+        }
+        
+        console.log('Legislation data received:', legislationData);
+        
+        // Ensure all required fields exist
+        // Use graphBill data if available, otherwise use legislationData
+        const completeLegislation = {
+          id: billId,
+          title: graphBill?.title || legislationData.title || `${billId} - Legislation`,
+          question: legislationData.question || `Will ${billId} pass Congress?`,
+          summary: legislationData.summary || graphBill?.summary || `${graphBill?.title || billId} - ${graphBill?.sector || 'General'} sector legislation.`,
+          sponsor: legislationData.sponsor || `Sponsor of ${billId}`,
+          status: graphBill?.status || legislationData.status || 'Pending',
+          cosponsors: graphBill?.cosponsors || legislationData.cosponsors || 0,
+          yesPrice: legislationData.yesPrice || (graphBill && graphBill.cosponsors > 40 ? 0.65 : graphBill && graphBill.cosponsors > 25 ? 0.45 : 0.30),
+          noPrice: legislationData.noPrice || (graphBill && graphBill.cosponsors > 40 ? 0.35 : graphBill && graphBill.cosponsors > 25 ? 0.55 : 0.70),
+          volume24h: legislationData.volume24h || 0,
+          liquidity: legislationData.liquidity || 0,
+          marketCap: legislationData.marketCap || 0,
+          resolutionDate: legislationData.resolutionDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          resolutionCriteria: legislationData.resolutionCriteria || 'This market resolves based on bill passage.',
+          billUrl: legislationData.billUrl || `https://www.congress.gov/bill/117th-congress/house-bill/${billId.replace(/[^0-9]/g, '')}`,
+          committees: legislationData.committees || graphBill?.committees || [],
+          date: graphBill?.date || legislationData.date || new Date().toISOString().split('T')[0],
+          affectedStocks: legislationData.affectedStocks || [],
+          supportingCongressmen: legislationData.supportingCongressmen || [],
+          activitySummary: legislationData.activitySummary || {
+            totalTrades: 0,
+            suspiciousTrades: 0,
+            totalVolume: '$0',
+            averageExcessReturn: 0
+          },
+          aiSummary: legislationData.aiSummary || null,
+          priceHistory: generatePriceHistory(30),
+        };
+        
+        setLegislation(completeLegislation);
+      } catch (error) {
+        console.error('Error fetching legislation:', error);
+        // Try to get from graphBills as fallback
+        const { graphBills } = await import('../utils/graphData');
+        const graphBill = graphBills.find(b => b.id === billId);
+        
+        if (graphBill) {
+          // Use graphBill data
+          setLegislation({
+            id: billId,
+            title: graphBill.title,
+            question: `Will ${billId} pass Congress?`,
+            summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
+            sponsor: `Sponsor of ${billId}`,
+            status: graphBill.status || 'Pending',
+            cosponsors: graphBill.cosponsors || 0,
+            yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
+            noPrice: graphBill.cosponsors > 40 ? 0.35 : graphBill.cosponsors > 25 ? 0.55 : 0.70,
+            volume24h: 0,
+            liquidity: 0,
+            marketCap: 0,
+            resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            resolutionCriteria: 'This market resolves based on bill passage.',
+            billUrl: `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            committees: graphBill.committees || [],
+            date: graphBill.date || new Date().toISOString().split('T')[0],
+            affectedStocks: [],
+            supportingCongressmen: [],
+            activitySummary: {
+              totalTrades: 0,
+              suspiciousTrades: 0,
+              totalVolume: '$0',
+              averageExcessReturn: 0
+            },
+            aiSummary: null,
+            priceHistory: generatePriceHistory(30),
+          });
+        } else {
+          // Final fallback: use mock data
+          const { legislationDetails } = await import('../utils/legislationData');
+          const fallbackData = legislationDetails[billId] || legislationDetails['H.R.1234'];
+          setLegislation({
+            ...fallbackData,
+            id: billId,
+            priceHistory: generatePriceHistory(30)
+          });
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (billId) {
+      fetchLegislation();
+    }
+  }, [billId]);
 
   // Get sponsor congressman image
   const sponsorCongressman = legislation.supportingCongressmen?.find(c => c.role === 'Sponsor') || 
@@ -58,7 +229,7 @@ const LegislationBetPage = () => {
 
   // Filter price history based on time range
   const getFilteredHistory = () => {
-    if (!legislation.priceHistory) return [];
+    if (!legislation || !legislation.priceHistory) return [];
     
     const today = new Date();
     const ranges = {
@@ -77,6 +248,20 @@ const LegislationBetPage = () => {
       return new Date(item.date) >= cutoffDate;
     });
   };
+
+  // Show loading spinner while fetching data
+  if (loading || !legislation) {
+    return (
+      <div className="min-h-screen bg-gresearch-grey-200">
+        <Header />
+        <Container>
+          <div className="flex items-center justify-center min-h-[80vh]">
+            <LoadingSpinner size="lg" />
+          </div>
+        </Container>
+      </div>
+    );
+  }
 
   const priceHistory = getFilteredHistory();
 

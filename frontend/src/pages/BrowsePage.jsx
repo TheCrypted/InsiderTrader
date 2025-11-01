@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { graphCongressmen, graphBills } from '../utils/graphData';
-import { getLegislationDetails } from '../utils/legislationData';
-import { getAllRepresentativesBasic, loadTradesForBatch } from '../utils/api';
+import { legislationDetails } from '../utils/legislationData';
+import { getAllRepresentativesBasic, loadTradesForBatch, getRecentBills } from '../utils/api';
 
 const ITEMS_PER_PAGE = 30; // Number of congressmen to load at a time
 
@@ -18,6 +18,8 @@ const BrowsePage = () => {
   const [displayedCount, setDisplayedCount] = useState(ITEMS_PER_PAGE); // How many to show
   const [loadingCongressmen, setLoadingCongressmen] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [recentBills, setRecentBills] = useState([]); // Bills from API
+  const [loadingLegislation, setLoadingLegislation] = useState(true);
   const observerTarget = useRef(null);
 
   // Fetch basic representative info (fast)
@@ -40,6 +42,40 @@ const BrowsePage = () => {
     };
     fetchCongressmenBasic();
   }, []);
+
+  // Fetch recent bills from API
+  useEffect(() => {
+    const fetchRecentBills = async () => {
+      try {
+        setLoadingLegislation(true);
+        console.log('Fetching recent bills for BrowsePage...');
+        const bills = await getRecentBills();
+        console.log('Received bills in BrowsePage:', bills);
+        
+        if (bills && bills.length > 0) {
+          setRecentBills(bills);
+          console.log(`Set ${bills.length} bills from API`);
+        } else {
+          console.log('No bills received, will use graphBills fallback');
+          setRecentBills([]);
+        }
+      } catch (error) {
+        console.error('Error fetching recent bills:', error);
+        // Fallback to empty array, will use graphBills below
+        setRecentBills([]);
+      } finally {
+        setLoadingLegislation(false);
+      }
+    };
+
+    if (activeTab === 'legislation') {
+      fetchRecentBills();
+    } else {
+      // Reset when switching away from legislation tab
+      setRecentBills([]);
+      setLoadingLegislation(false);
+    }
+  }, [activeTab]);
 
   // Load more congressmen when scrolling
   const loadMoreCongressmen = useCallback(async () => {
@@ -170,21 +206,96 @@ const BrowsePage = () => {
     }));
   }, [loadedCongressmen, allCongressmenBasic, displayedCount]);
 
-  // Prepare legislation data with odds
+  // Prepare legislation data with odds - prefer recentBills from API, fallback to graphBills
   const allLegislation = useMemo(() => {
-    return graphBills.map(bill => {
-      const details = getLegislationDetails(bill.id);
+    console.log('Preparing legislation data. recentBills:', recentBills.length, 'graphBills:', graphBills.length);
+    
+    // Use recent bills from API first, then fallback to graphBills
+    const billsToUse = recentBills.length > 0 ? recentBills : graphBills;
+    console.log(`Using ${billsToUse.length} bills (${recentBills.length > 0 ? 'from API' : 'from graphBills'})`);
+    
+    return billsToUse.map((bill) => {
+      // If from API, bill has bill_id, title, latest_action, url
+      // If from graphBills, bill has id, title, sector, date, etc.
+      const originalBillId = bill.bill_id || bill.id;
+      let billId = originalBillId;
+      
+      // Normalize bill ID format: "HR.5345" -> "H.R.5345" for consistency with routes
+      // Keep original format for matching with graphBills
+      if (billId && billId.startsWith('HR.')) {
+        billId = billId.replace(/^HR\./, 'H.R.');
+      }
+      
+      console.log('Processing bill:', { original: originalBillId, normalized: billId, fromAPI: !!bill.bill_id });
+      
+      // Try to find matching graphBill for additional data
+      // Check both normalized and original format
+      const graphBill = graphBills.find(b => b.id === billId || b.id === originalBillId);
+      const baseDetails = legislationDetails[billId] || legislationDetails[originalBillId];
+      
+      // Determine sector - from graphBill or infer from title
+      let sector = graphBill?.sector || 'General';
+      if (!graphBill) {
+        // Infer sector from title
+        const titleLower = (bill.title || '').toLowerCase();
+        if (titleLower.includes('tech') || titleLower.includes('digital') || titleLower.includes('cyber') || titleLower.includes('ai')) {
+          sector = 'Technology';
+        } else if (titleLower.includes('health') || titleLower.includes('medicare') || titleLower.includes('healthcare')) {
+          sector = 'Healthcare';
+        } else if (titleLower.includes('infrastructure') || titleLower.includes('transport')) {
+          sector = 'Infrastructure';
+        } else if (titleLower.includes('education') || titleLower.includes('student')) {
+          sector = 'Education';
+        } else if (titleLower.includes('energy') || titleLower.includes('carbon') || titleLower.includes('climate')) {
+          sector = 'Energy';
+        } else if (titleLower.includes('housing') || titleLower.includes('affordability')) {
+          sector = 'Housing';
+        } else if (titleLower.includes('business') || titleLower.includes('small business')) {
+          sector = 'Business';
+        }
+      }
+      
+      // Get cosponsors from graphBill or estimate
+      const cosponsors = graphBill?.cosponsors || (baseDetails?.cosponsors) || 0;
+      
+      // Get date from API latest_action or graphBill
+      const date = bill.latest_action?.date || graphBill?.date || new Date().toISOString().split('T')[0];
+      
+      // Get status from graphBill or infer
+      let status = graphBill?.status || 'In Committee';
+      if (bill.latest_action?.text) {
+        const actionText = bill.latest_action.text.toLowerCase();
+        if (actionText.includes('passed') || actionText.includes('enacted')) {
+          status = 'Passed House';
+        } else if (actionText.includes('failed') || actionText.includes('rejected')) {
+          status = 'Failed';
+        }
+      }
+      
+      // Calculate odds based on cosponsors
+      const passingOdds = baseDetails?.yesPrice || (cosponsors > 40 ? 0.65 : cosponsors > 25 ? 0.45 : 0.30);
+      const failingOdds = baseDetails?.noPrice || (cosponsors > 40 ? 0.35 : cosponsors > 25 ? 0.55 : 0.70);
+      
       return {
-        ...bill,
-        ...details,
-        // Add passing/failing odds (mock calculation based on cosponsors, status, etc.)
-        passingOdds: details?.yesPrice || (bill.cosponsors > 40 ? 0.65 : bill.cosponsors > 25 ? 0.45 : 0.30),
-        failingOdds: details?.noPrice || (bill.cosponsors > 40 ? 0.35 : bill.cosponsors > 25 ? 0.55 : 0.70),
-        isPassed: bill.status === 'Passed House' || bill.status === 'Passed Senate' || bill.status === 'Enacted',
-        isFailed: false // Mock - in real app would check actual status
+        id: billId,
+        title: bill.title || graphBill?.title || `${billId} - Legislation`,
+        summary: baseDetails?.summary || graphBill?.summary || `${bill.title || billId} - ${sector} sector legislation.`,
+        sponsor: baseDetails?.sponsor || graphBill?.sponsorId || `Sponsor of ${billId}`,
+        yesPrice: passingOdds,
+        noPrice: failingOdds,
+        passingOdds: passingOdds,
+        failingOdds: failingOdds,
+        isPassed: status === 'Passed House' || status === 'Passed Senate' || status === 'Enacted',
+        isFailed: status === 'Failed',
+        sector: sector,
+        date: date,
+        cosponsors: cosponsors,
+        status: status,
+        committees: graphBill?.committees || baseDetails?.committees || [],
+        billUrl: bill.url || baseDetails?.billUrl || `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
       };
     });
-  }, []);
+  }, [recentBills]);
 
   // Filter congressmen
   const filteredCongressmen = useMemo(() => {
@@ -528,8 +639,19 @@ const BrowsePage = () => {
 
         {/* Legislation List */}
         {activeTab === 'legislation' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-l border-r border-black -mx-6">
-            {filteredLegislation.map((bill, index) => {
+          <>
+            {loadingLegislation ? (
+              <div className="border-t border-l border-r border-black -mx-6 p-12 text-center">
+                <div className="text-gray-400">Loading recent bills...</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-l border-r border-black -mx-6">
+                {filteredLegislation.length === 0 ? (
+                  <div className="col-span-2 border-b border-black p-12 text-center">
+                    <div className="text-gray-400">No legislation found</div>
+                  </div>
+                ) : (
+                  filteredLegislation.map((bill, index) => {
               const isLastInRow = (index + 1) % 2 === 0;
               
               return (
@@ -549,7 +671,9 @@ const BrowsePage = () => {
                   <div className="mb-4">
                     <div className="text-xs text-gray-600 mb-1">Bill id</div>
                     <div className="border-b border-black mb-2"></div>
-                    <div className="text-sm font-medium text-gray-700 mb-1">{bill.id.replace(/H\.R\./, 'H.').replace(/S\./, 'S.')}</div>
+                    <div className="text-sm font-medium text-gray-700 mb-1">
+                      {bill.id.startsWith('H.R.') ? bill.id.replace(/^H\.R\./, 'HR.') : bill.id}
+                    </div>
                     <h3 className="text-2xl font-bold text-gray-900">{bill.title}</h3>
                   </div>
                   
@@ -592,8 +716,11 @@ const BrowsePage = () => {
                 </div>
               </Link>
               );
-            })}
-          </div>
+                  })
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

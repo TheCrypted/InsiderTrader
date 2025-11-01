@@ -73,23 +73,32 @@ const TradesTable = ({ trades, loading }) => {
       >
         <td className="px-4 py-2">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded flex items-center justify-center font-bold text-gray-700 bg-white border border-gray-200 overflow-hidden flex-shrink-0">
-              {!logoLoading && logoUrl ? (
+            <div className="w-10 h-10 rounded flex items-center justify-center font-bold text-xs text-gray-900 bg-white border border-gray-200 overflow-hidden flex-shrink-0 relative">
+              {logoUrl && !logoLoading ? (
                 <img 
                   src={logoUrl} 
                   alt={trade.stock} 
                   className="w-full h-full object-contain p-1" 
                   onError={(e) => {
-                    e.target.style.display = 'none'
-                    e.target.nextElementSibling.style.display = 'block'
+                    // Hide image on error and show ticker symbol
+                    e.target.style.display = 'none';
+                    const tickerSpan = e.target.parentElement.querySelector('.ticker-fallback');
+                    if (tickerSpan) {
+                      tickerSpan.style.display = 'flex';
+                    }
                   }} 
                 />
               ) : null}
-              <span className={!logoLoading && logoUrl ? 'hidden' : ''}>{trade.stock}</span>
+              <span 
+                className={`ticker-fallback absolute inset-0 flex items-center justify-center ${logoUrl && !logoLoading ? 'hidden' : 'flex'}`}
+                style={{ fontSize: '9px', fontWeight: '600' }}
+              >
+                {trade.stock && trade.stock !== '-' ? trade.stock : 'N/A'}
+              </span>
             </div>
             <div>
-              <div className="font-semibold text-gray-900">{trade.stock}</div>
-              {trade.company && (
+              <div className="font-semibold text-gray-900">{trade.stock !== '-' ? trade.stock : 'N/A'}</div>
+              {trade.company && trade.company !== 'Unknown' && (
                 <div className="text-xs text-gray-500 mt-0.5">{trade.company}</div>
               )}
             </div>
