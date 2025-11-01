@@ -21,5 +21,6 @@ public record Politician(
     string imageUrl
 );
     
-public record Trade(string bioGuideId, string fullName, string ticker, string companyName,
+[PrimaryKey(nameof(tradeId))]
+public record Trade(Guid tradeId, string bioGuideId, string fullName, string ticker,
     string tradedAt, string disclosureDate, string tradeType, string tradeAmount);

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using DateTime = System.DateTime;
 using JsonElement = System.Text.Json.JsonElement;
@@ -34,7 +35,7 @@ builder.Services.AddHttpClient("quiver", c =>
     c.BaseAddress = new Uri("https://api.quiverquant.com");
     c.DefaultRequestHeaders.Accept.ParseAdd("application/json");
     c.DefaultRequestHeaders.Authorization =
-        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "<YOUR_TOKEN_HERE>");
+        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "123");
 });
 
 
@@ -49,7 +50,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db  = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var env = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
-    var http = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("bio");
+    var httpBio = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("bio");
 
     db.Database.EnsureCreated();
 
@@ -110,7 +111,7 @@ using (var scope = app.Services.CreateScope())
             await throttler.WaitAsync();
             try
             {
-                string imageUrl = await GetBioGuideImageUrlAsync(it.BioGuideId, http);
+                string imageUrl = await GetBioGuideImageUrlAsync(it.BioGuideId, httpBio);
                 results.Add(new Politician(
                     bioGuideId: it.BioGuideId,
                     fullName: it.FullName,
@@ -135,8 +136,32 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    if (!db.Trades.Any()) {
-        
+    if (!db.Trades.Any())
+    {
+        var httpQuiver = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>().CreateClient("quiver");
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            NumberHandling = JsonNumberHandling.AllowReadingFromString
+        };
+
+        using var resp = await httpQuiver.GetAsync("/beta/live/congresstrading", HttpCompletionOption.ResponseHeadersRead);
+        resp.EnsureSuccessStatusCode();
+
+        await using var stream = await resp.Content.ReadAsStreamAsync();
+        var records = await JsonSerializer.DeserializeAsync<List<CongressionalTradeLiveResponse>>(stream, options)
+                      ?? new List<CongressionalTradeLiveResponse>();
+
+        // Map to your Trade entity
+        var trades = records.Select(ToTrade);
+
+        // Save in chunks to avoid huge transactions
+        const int batchSize = 500;
+        foreach (var chunk in trades.Chunk(batchSize))
+        {
+            db.Trades.AddRange(chunk);
+            await db.SaveChangesAsync();
+        }
     }
 }
 
@@ -203,28 +228,22 @@ static async Task<string> GetBioGuideImageUrlAsync(string bioGuideId, HttpClient
     return "";
 }
 
-static Trade MapToTrade(CongressTradingRecordResponse record)
+static Trade ToTrade(CongressionalTradeLiveResponse r)
 {
     return new Trade(
-        bioGuideId: record.Party,
-        fullName: record.Name,
-        ticker: record.Ticker,
-        companyName: record.Company,
-        tradedAt: record.Traded.ToString("yyyy-MM-dd"),
-        disclosureDate: record.Filed.ToString("yyyy-MM-dd"),
-        tradeType: record.Transaction,
-        tradeAmount: record.Trade_Size_USD
+        tradeId: Guid.NewGuid(),
+        bioGuideId: r.BioGuideID,
+        fullName: r.Representative,
+        ticker: r.Ticker,
+        tradedAt: r.TransactionDate.ToString("yyyy-MM-dd"),
+        disclosureDate: r.ReportDate.ToString("yyyy-MM-dd"),
+        tradeType: r.Transaction,
+        tradeAmount: r.Range ?? (r.Amount?.ToString() ?? string.Empty) // Prefer human-readable range; fall back to numeric
     );
 }
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment()) {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseHttpsRedirection();
-
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.MapGet("/test", () => { return $"hello world!"; });
 
@@ -244,30 +263,33 @@ app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string
 
 // given politician ID- give their last 24 months of trades
 
-app.MapGet("/trades-by/{bioGuideId}", async () => {
-    
-});
+app.MapGet("/trades-by/{bioGuideId}",
+    async (string bioGuideId, AppDbContext db) => await db.Trades.Where(t => t.bioGuideId == bioGuideId).ToListAsync());
+
+app.MapGet("/all-representatives", async (AppDbContext db) =>
+    await db.Politicians.ToListAsync());
+
+// app.MapGet("/trading-volume-by-year/{bioGuideId}", (string bioGuideId, AppDbContext db)=>{
+//     return db.Trades.Where(t=> t.bioGuideId == bioGuideId, )
+// });
 
 app.Run();
 
-public record CongressTradingRecordResponse(
-    string Ticker,
-    string TickerType,
-    string Company,
-    DateTime Traded,
-    string Transaction,
-    string Trade_Size_USD,
-    string Status,
-    string Subholding,
-    string Description,
-    string Name,
-    DateTime Filed,
-    string Party,
-    string District,
-    string Chamber,
-    string Comments,
-    string excess_return,
-    string? uploaded,
-    string State,
-    string? last_modified
+public record CongressionalTradeLiveResponse(
+    [property: JsonPropertyName("Representative")] string Representative,
+    [property: JsonPropertyName("BioGuideID")] string BioGuideID,
+    [property: JsonPropertyName("ReportDate")] DateTime ReportDate,
+    [property: JsonPropertyName("TransactionDate")] DateTime TransactionDate,
+    [property: JsonPropertyName("Ticker")] string Ticker,
+    [property: JsonPropertyName("Transaction")] string Transaction,
+    [property: JsonPropertyName("Range")] string Range,
+    [property: JsonPropertyName("House")] string House,
+    [property: JsonPropertyName("Amount")] decimal? Amount,
+    [property: JsonPropertyName("Party")] string Party,
+    [property: JsonPropertyName("last_modified")] DateTime? LastModified,
+    [property: JsonPropertyName("TickerType")] string TickerType,
+    [property: JsonPropertyName("Description")] string? Description,
+    [property: JsonPropertyName("ExcessReturn")] double? ExcessReturn,
+    [property: JsonPropertyName("PriceChange")] double? PriceChange,
+    [property: JsonPropertyName("SPYChange")] double? SPYChange
 );
