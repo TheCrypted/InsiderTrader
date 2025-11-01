@@ -1,4 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using DateTime = System.DateTime;
+using JsonElement = System.Text.Json.JsonElement;
+using JsonValueKind = System.Text.Json.JsonValueKind;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +16,115 @@ builder.Services.AddDbContext<AppDbContext>(options =>
                       ?? "Data Source=app.db"));
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+    
+    if (!db.Politicians.Any())
+    {
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+        // Use ContentRootPath if this runs in ASP.NET
+        var env = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+        var path = Path.Combine(env.ContentRootPath, "data", "legislators-current.json");
+
+        using FileStream fs = File.OpenRead(path);
+
+        await foreach (var elem in JsonSerializer.DeserializeAsyncEnumerable<JsonElement>(fs, options))
+        {
+            if (elem.ValueKind != JsonValueKind.Object) continue;
+
+            // id.bioguide
+            string bioGuideId = GetString(elem, "id", "bioguide");
+
+            // name.official_full (fallback to "first last")
+            string fullName = GetString(elem, "name", "official_full");
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                var first = GetString(elem, "name", "first");
+                var last  = GetString(elem, "name", "last");
+                fullName = $"{first} {last}".Trim();
+            }
+
+            // bio.birthday (keep as string to match your record signature)
+            string dateOfBirth = GetString(elem, "bio", "birthday");
+
+            // Find the latest term (by 'end' date) to infer party/position/state
+            string politicalParty = "";
+            string position = "";
+            string territory = "";
+
+            if (elem.TryGetProperty("terms", out var termsEl) && termsEl.ValueKind == JsonValueKind.Array)
+            {
+                JsonElement? latest = null;
+                DateTime latestEnd = DateTime.MinValue;
+
+                foreach (var term in termsEl.EnumerateArray())
+                {
+                    string endStr = term.TryGetProperty("end", out var endEl) ? endEl.GetString() : null;
+                    if (DateTime.TryParse(endStr, out var endDt))
+                    {
+                        if (endDt > latestEnd) { latestEnd = endDt; latest = term; }
+                    }
+                    else
+                    {
+                        // If end is missing/unparseable, consider using start as fallback
+                        var startStr = term.TryGetProperty("start", out var startEl) ? startEl.GetString() : null;
+                        if (DateTime.TryParse(startStr, out var startDt) && startDt > latestEnd)
+                        {
+                            latestEnd = startDt; latest = term;
+                        }
+                    }
+                }
+
+                if (latest is JsonElement cur)
+                {
+                    politicalParty = cur.TryGetProperty("party", out var p) ? p.GetString() ?? "" : "";
+                    var type = cur.TryGetProperty("type", out var t) ? t.GetString() : null;
+                    position = type switch
+                    {
+                        "sen" => "Senator",
+                        "rep" => "Representative",
+                        _     => type ?? ""
+                    };
+                    territory = cur.TryGetProperty("state", out var s) ? s.GetString() ?? "" : "";
+                }
+            }
+
+            // Your record signature:
+            // Politician(string bioGuideId, string fullName, string imageUrl, string bio,
+            //            string dateOfBirth, string policitalParty, string position, string territory)
+
+            var politician = new Politician(
+                bioGuideId: bioGuideId,
+                fullName: fullName,
+                dateOfBirth: dateOfBirth,
+                politicalParty: politicalParty, 
+                position: position,
+                territory: territory
+            );
+
+            // Skip obviously bad rows (optional)
+            if (!string.IsNullOrWhiteSpace(politician.bioGuideId))
+                db.Politicians.Add(politician);
+        }
+
+        await db.SaveChangesAsync();
+    }
+}
+
+static string GetString(JsonElement root, string objName, string propName)
+{
+    if (root.TryGetProperty(objName, out var obj) && obj.ValueKind == JsonValueKind.Object &&
+        obj.TryGetProperty(propName, out var val) && val.ValueKind == JsonValueKind.String)
+    {
+        return val.GetString() ?? "";
+    }
+    return "";
+}
+
 
 // Weather summaries used throughout the app
 var summaries = new[] {
