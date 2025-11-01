@@ -13,7 +13,7 @@ builder.Services.AddSwaggerGen();
 // Add SQLite database
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
-                      ?? "Data Source=app.db"));
+                      ?? "Data Source=data/app.db"));
 
 var app = builder.Build();
 
