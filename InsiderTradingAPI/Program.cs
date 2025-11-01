@@ -126,11 +126,6 @@ static string GetString(JsonElement root, string objName, string propName)
 }
 
 
-// Weather summaries used throughout the app
-var summaries = new[] {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment()) {
     app.UseSwagger();
@@ -139,28 +134,8 @@ if (app.Environment.IsDevelopment()) {
 
 app.UseHttpsRedirection();
 
-
 app.MapGet("/test", () => {
     return $"hello world!";
-});
-
-app.MapGet("/weatherforecasts", async (AppDbContext db) => {
-    return await db.WeatherForecasts.ToListAsync();
-});
-
-app.MapPost("/weatherforecasts", async (AppDbContext db) => {
-    var random = new Random();
-    var weatherForecast = new WeatherForecast
-    {
-        Date = DateTime.Now.AddDays(random.Next(1, 30)),
-        TemperatureC = random.Next(-20, 55),
-        Summary = summaries[random.Next(summaries.Length)]
-    };
-    
-    db.WeatherForecasts.Add(weatherForecast);
-    await db.SaveChangesAsync();
-    
-    return Results.Created($"/weatherforecasts/{weatherForecast.Id}", weatherForecast);
 });
 
 app.Run();
