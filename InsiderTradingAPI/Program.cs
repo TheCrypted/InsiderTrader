@@ -266,6 +266,13 @@ app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string
 app.MapGet("/trades-by/{bioGuideId}",
     async (string bioGuideId, AppDbContext db) => await db.Trades.Where(t => t.bioGuideId == bioGuideId).ToListAsync());
 
+app.MapGet("/all-representatives", async (AppDbContext db) =>
+    await db.Politicians.ToListAsync());
+
+// app.MapGet("/trading-volume-by-year/{bioGuideId}", (string bioGuideId, AppDbContext db)=>{
+//     return db.Trades.Where(t=> t.bioGuideId == bioGuideId, )
+// });
+
 app.Run();
 
 public record CongressionalTradeLiveResponse(
