@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using DateTime = System.DateTime;
 using JsonElement = System.Text.Json.JsonElement;
@@ -211,9 +213,17 @@ static async Task<string> GetBioGuideImageUrlAsync(string bioGuideId, HttpClient
                     data.TryGetProperty("image", out var images) &&
                     images.ValueKind == JsonValueKind.Array &&
                     images.GetArrayLength() > 0 &&
-                    images[0].TryGetProperty("contentUrl", out var urlProp))
-                {
+                    images[0].TryGetProperty("contentUrl", out var urlProp)) {
                     var rel = urlProp.GetString() ?? "";
+                    if (rel != "") {
+                        var splitString = rel.Split('/');
+                        if (splitString.Length == 4) {
+                            rel = "photo/" + splitString[3];
+                        }
+                        else {
+                            rel = "";
+                        }
+                    }
                     return string.IsNullOrWhiteSpace(rel) ? "" : new Uri(baseUri, rel).ToString();
                 }
                 return "";
@@ -281,9 +291,66 @@ app.MapGet("/trades-by/{bioGuideId}",
 app.MapGet("/all-representatives", async (AppDbContext db) =>
     await db.Politicians.ToListAsync());
 
-// app.MapGet("/trading-volume-by-year/{bioGuideId}", (string bioGuideId, AppDbContext db)=>{
-//     return db.Trades.Where(t=> t.bioGuideId == bioGuideId, )
-// });
+app.MapGet("/trading-volume-by-year/{bioGuideId}", async (string bioGuideId, AppDbContext db)=> {
+    var raw = await db.Trades
+        .Where(t => t.bioGuideId == bioGuideId && t.tradedAt != null && t.tradedAt.Length >= 4)
+        .Select(t => new { Year = t.tradedAt.Substring(0, 4), Amount = t.tradeAmount })
+        .ToListAsync();
+    
+    return raw
+        .Select(x => new { x.Year, Range = ToRangeUSD(x.Amount) })
+        .GroupBy(x => x.Year)
+        .Select(g => new {
+            Year = g.Key,
+            TotalUSDApprox = g.Sum(v => (v.Range.Min + v.Range.Max) / 2m) // midpoint sum
+        })
+        .OrderBy(x => x.Year)
+        .ToList();
+});
+
+static (decimal Min, decimal Max) ToRangeUSD(string? s)
+{
+    if (string.IsNullOrWhiteSpace(s)) return (0m, 0m);
+    s = s.Trim();
+    
+    // 1) range: "$1,001 - $15,000"
+    var mRange = Regex.Match(s, @"^\s*\$?([\d,]+)\s*-\s*\$?([\d,]+)\s*$");
+    if (mRange.Success)
+    {
+        var lo = decimal.Parse(mRange.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+        var hi = decimal.Parse(mRange.Groups[2].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+        return (lo, hi);
+    }
+    
+    // 2) greater-than: ">$1,000,000"
+    var mGt = Regex.Match(s, @"^\s*>\s*\$?([\d,]+)\s*$");
+    if (mGt.Success)
+    {
+        var v = decimal.Parse(mGt.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+        // assume lower bound is v, unknown upper; treat upper as same (conservative)
+        return (v, v);
+    }
+    
+    // 3) less-than: "<$1,000"
+    var mLt = Regex.Match(s, @"^\s*<\s*\$?([\d,]+)\s*$");
+    if (mLt.Success)
+    {
+        var v = decimal.Parse(mLt.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+        // assume between 0 and v (conservative)
+        return (0m, v);
+    }
+    
+    // 4) single value: "$2,500"
+    var mSingle = Regex.Match(s, @"^\s*\$?([\d,]+)\s*$");
+    if (mSingle.Success)
+    {
+        var v = decimal.Parse(mSingle.Groups[1].Value.Replace(",", ""), CultureInfo.InvariantCulture);
+        return (v, v);
+    }
+
+    // fallback: can't parse
+    return (0m, 0m);
+}
 
 app.Run();
 
