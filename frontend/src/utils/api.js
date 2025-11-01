@@ -355,7 +355,7 @@ const modelApiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 second timeout
+  timeout: 20000, // 20 second timeout (stocks can take 10-15 seconds)
 });
 
 // Fetch recent bills from model API
@@ -410,8 +410,11 @@ const parseBillId = (billId) => {
         billType = 'HR'; // Normalize to HR for consistency
       }
       
+      // Convert to lowercase for API (API expects: hr, s, hjres, sjres, hconres, sconres, hres, sres)
+      const billTypeLower = billType.toLowerCase();
+      
       return {
-        bill_type: billType,
+        bill_type: billTypeLower, // API expects lowercase
         bill_number: parseInt(match[2], 10),
       };
     }
@@ -421,8 +424,95 @@ const parseBillId = (billId) => {
   return null;
 };
 
+// Fetch Polymarket odds for bills
+export const getPolymarketBills = async () => {
+  try {
+    const response = await modelApiClient.get('/polymarket_bills');
+    if (response.data && response.data.results) {
+      return response.data.results;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching Polymarket bills:', error);
+    return [];
+  }
+};
+
+// Fetch Polymarket odds for a specific bill
+export const getPolymarketOddsForBill = async (billId) => {
+  try {
+    const allBills = await getPolymarketBills();
+    if (!billId || !allBills || allBills.length === 0) return null;
+    
+    // Try multiple normalization strategies for matching
+    const normalizeBillId = (id) => {
+      if (!id) return null;
+      // Remove all dots and spaces, uppercase
+      return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+    };
+    
+    const normalizeStandard = (id) => {
+      if (!id) return null;
+      return id
+        .replace(/H\.R\./gi, 'HR.')
+        .replace(/H\.R/gi, 'HR.')
+        .replace(/H\s*R\s*/gi, 'HR.')
+        .replace(/S\./gi, 'S.')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+    };
+    
+    const removeLeadingZeros = (id) => {
+      if (!id) return null;
+      return id.replace(/(\.|^)(0+)(\d+)/, '$1$3');
+    };
+    
+    const billIdNormalized = normalizeBillId(billId);
+    const billIdStandardized = normalizeStandard(billId);
+    const billIdNoLeadingZeros = removeLeadingZeros(billId);
+    const billIdNoLeadingZerosNorm = normalizeBillId(billIdNoLeadingZeros);
+    
+    // Try to find matching bill with multiple strategies
+    const bill = allBills.find(b => {
+      if (!b.bill_id) return false;
+      
+      // Try exact match
+      if (b.bill_id === billId) return true;
+      
+      // Try normalized match
+      const bNormalized = normalizeBillId(b.bill_id);
+      if (bNormalized === billIdNormalized) return true;
+      
+      // Try standardized match
+      const bStandardized = normalizeStandard(b.bill_id);
+      if (bStandardized === billIdStandardized) return true;
+      
+      // Try without leading zeros
+      const bNoLeadingZeros = removeLeadingZeros(b.bill_id);
+      if (bNoLeadingZeros === billIdNoLeadingZeros) return true;
+      
+      const bNoLeadingZerosNorm = normalizeBillId(bNoLeadingZeros);
+      if (bNoLeadingZerosNorm === billIdNoLeadingZerosNorm) return true;
+      
+      return false;
+    });
+    
+    if (bill) {
+      console.log(`Found Polymarket odds for ${billId}: Yes ${bill.yes_percentage}%, No ${bill.no_percentage}%`);
+    } else {
+      console.log(`No Polymarket odds found for ${billId}. Available bills:`, allBills.map(b => b.bill_id));
+    }
+    
+    return bill || null;
+  } catch (error) {
+    console.error(`Error fetching Polymarket odds for bill ${billId}:`, error);
+    return null;
+  }
+};
+
 // Fetch relevant stocks for a bill from model API (with timeout)
-export const getBillRelevantStocks = async (billId, timeout = 5000) => {
+// Note: This can take 10-15 seconds, so should be called in background after page loads
+export const getBillRelevantStocks = async (billId, timeout = 15000) => {
   try {
     const parsed = parseBillId(billId);
     if (!parsed) {
@@ -432,18 +522,15 @@ export const getBillRelevantStocks = async (billId, timeout = 5000) => {
 
     console.log(`Fetching stocks for bill ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
     
-    // Use Promise.race to add timeout
-    const response = await Promise.race([
-      modelApiClient.get('/match', {
-        params: {
-          bill_type: parsed.bill_type,
-          bill_number: parsed.bill_number,
-        },
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), timeout)
-      )
-    ]);
+    // Create a custom axios request with increased timeout for this specific call
+    // The axios client has a 20s timeout, but we can override per-request
+    const response = await modelApiClient.get('/match', {
+      params: {
+        bill_type: parsed.bill_type, // Already lowercase from parseBillId
+        bill_number: parsed.bill_number,
+      },
+      timeout: timeout, // Use the provided timeout (default 15000ms)
+    });
 
     if (response.data && response.data.results && response.data.results.length > 0) {
       // Map API response to frontend format (top 5 stocks)
@@ -467,6 +554,77 @@ export const getBillRelevantStocks = async (billId, timeout = 5000) => {
     console.error('Full error:', error);
     return [];
   }
+};
+
+// Fetch bill information from Congress API (status, sponsors, etc.)
+export const getBillInfo = async (billId) => {
+  try {
+    const parsed = parseBillId(billId);
+    if (!parsed) {
+      console.warn(`Could not parse bill_id for bill_info: ${billId}`);
+      return null;
+    }
+
+    console.log(`Fetching bill info for ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
+    
+    const response = await modelApiClient.get('/bill_info', {
+      params: {
+        bill_type: parsed.bill_type, // Already lowercase
+        bill_number: parsed.bill_number,
+      },
+      timeout: 10000, // 10 second timeout for bill info
+    });
+
+    if (response.data) {
+      return {
+        bill_id: response.data.bill_id,
+        title: response.data.title,
+        introduced_date: response.data.introduced_date,
+        policy_area: response.data.policy_area,
+        sponsors: response.data.sponsors || [],
+        cosponsors_count: response.data.cosponsors_count || 0,
+        latest_action: response.data.latest_action || {},
+        // Determine status from latest_action text
+        status: determineBillStatus(response.data.latest_action?.text || ''),
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching bill info for ${billId}:`, error.message || error);
+    return null;
+  }
+};
+
+// Helper function to determine bill status from latest action text
+const determineBillStatus = (actionText) => {
+  if (!actionText) return 'Pending';
+  
+  const text = actionText.toLowerCase();
+  
+  // Check for passed/enacted status
+  if (text.includes('became public law') || text.includes('signed by president') || text.includes('enacted')) {
+    return 'Enacted';
+  }
+  if (text.includes('passed senate') && text.includes('passed house')) {
+    return 'Passed Both Chambers';
+  }
+  if (text.includes('passed senate')) {
+    return 'Passed Senate';
+  }
+  if (text.includes('passed house')) {
+    return 'Passed House';
+  }
+  if (text.includes('vetoed') || text.includes('veto')) {
+    return 'Vetoed';
+  }
+  if (text.includes('failed') || text.includes('rejected')) {
+    return 'Failed';
+  }
+  if (text.includes('referred to') || text.includes('committee')) {
+    return 'In Committee';
+  }
+  
+  return 'Pending';
 };
 
 export default apiClient;

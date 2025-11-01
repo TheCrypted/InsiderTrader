@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { graphCongressmen, graphBills } from '../utils/graphData';
 import { legislationDetails } from '../utils/legislationData';
-import { getAllRepresentativesBasic, loadTradesForBatch, getRecentBills } from '../utils/api';
+import { getAllRepresentativesBasic, loadTradesForBatch, getRecentBills, getPolymarketBills } from '../utils/api';
 
 const ITEMS_PER_PAGE = 30; // Number of congressmen to load at a time
 
@@ -19,6 +19,7 @@ const BrowsePage = () => {
   const [loadingCongressmen, setLoadingCongressmen] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [recentBills, setRecentBills] = useState([]); // Bills from API
+  const [polymarketOdds, setPolymarketOdds] = useState({}); // Map of bill_id -> odds
   const [loadingLegislation, setLoadingLegislation] = useState(true);
   const observerTarget = useRef(null);
 
@@ -43,14 +44,59 @@ const BrowsePage = () => {
     fetchCongressmenBasic();
   }, []);
 
-  // Fetch recent bills from API
+  // Fetch recent bills from API and Polymarket odds
   useEffect(() => {
     const fetchRecentBills = async () => {
       try {
         setLoadingLegislation(true);
         console.log('Fetching recent bills for BrowsePage...');
-        const bills = await getRecentBills();
+        
+        // Fetch bills and Polymarket odds in parallel
+        const [bills, polymarketData] = await Promise.all([
+          getRecentBills(),
+          getPolymarketBills()
+        ]);
+        
         console.log('Received bills in BrowsePage:', bills);
+        console.log('Received Polymarket odds:', polymarketData);
+        
+        // Create a map of bill_id -> odds for quick lookup
+        // Handle various bill ID formats for matching
+        const oddsMap = {};
+        polymarketData.forEach(bill => {
+          const billId = bill.bill_id;
+          if (!billId) return;
+          
+          // Store with original format
+          oddsMap[billId] = bill;
+          
+          // Normalize and store multiple formats for matching
+          // Remove all dots and spaces, uppercase
+          const normalizedNoDots = billId.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+          oddsMap[normalizedNoDots] = bill;
+          
+          // Store with standardized dot format (HR.1234, S.567)
+          const standardized = billId
+            .replace(/H\.R\./gi, 'HR.')
+            .replace(/H\.R/gi, 'HR.')
+            .replace(/H\s*R\s*/gi, 'HR.')
+            .replace(/S\./gi, 'S.')
+            .replace(/\s+/g, '')
+            .toUpperCase();
+          if (standardized !== billId) {
+            oddsMap[standardized] = bill;
+          }
+          
+          // Also store without leading zeros in number part (HR.05345 -> HR.5345)
+          const noLeadingZeros = billId.replace(/(\.|^)(0+)(\d+)/, '$1$3');
+          if (noLeadingZeros !== billId) {
+            oddsMap[noLeadingZeros] = bill;
+            const normalizedNoLeadingZeros = noLeadingZeros.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+            oddsMap[normalizedNoLeadingZeros] = bill;
+          }
+        });
+        console.log('Polymarket odds map created:', Object.keys(oddsMap));
+        setPolymarketOdds(oddsMap);
         
         if (bills && bills.length > 0) {
           setRecentBills(bills);
@@ -63,6 +109,7 @@ const BrowsePage = () => {
         console.error('Error fetching recent bills:', error);
         // Fallback to empty array, will use graphBills below
         setRecentBills([]);
+        setPolymarketOdds({});
       } finally {
         setLoadingLegislation(false);
       }
@@ -73,6 +120,7 @@ const BrowsePage = () => {
     } else {
       // Reset when switching away from legislation tab
       setRecentBills([]);
+      setPolymarketOdds({});
       setLoadingLegislation(false);
     }
   }, [activeTab]);
@@ -261,6 +309,32 @@ const BrowsePage = () => {
       // Get date from API latest_action or graphBill
       const date = bill.latest_action?.date || graphBill?.date || new Date().toISOString().split('T')[0];
       
+      // Get Polymarket odds if available
+      // Try multiple formats for matching
+      const normalizedNoDots = originalBillId.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+      const standardized = originalBillId
+        .replace(/H\.R\./gi, 'HR.')
+        .replace(/H\.R/gi, 'HR.')
+        .replace(/H\s*R\s*/gi, 'HR.')
+        .replace(/S\./gi, 'S.')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+      const noLeadingZeros = originalBillId.replace(/(\.|^)(0+)(\d+)/, '$1$3');
+      const normalizedNoLeadingZeros = noLeadingZeros.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+      
+      const polymarketData = polymarketOdds[originalBillId] || 
+                             polymarketOdds[normalizedNoDots] || 
+                             polymarketOdds[standardized] ||
+                             polymarketOdds[noLeadingZeros] ||
+                             polymarketOdds[normalizedNoLeadingZeros] ||
+                             null;
+      const yesOdds = polymarketData ? polymarketData.yes_percentage : null;
+      const noOdds = polymarketData ? polymarketData.no_percentage : null;
+      
+      if (polymarketData) {
+        console.log(`Found Polymarket odds for ${originalBillId}: Yes ${yesOdds}%, No ${noOdds}%`);
+      }
+      
       // Get status from graphBill or infer
       let status = graphBill?.status || 'In Committee';
       if (bill.latest_action?.text) {
@@ -272,9 +346,9 @@ const BrowsePage = () => {
         }
       }
       
-      // Calculate odds based on cosponsors
-      const passingOdds = baseDetails?.yesPrice || (cosponsors > 40 ? 0.65 : cosponsors > 25 ? 0.45 : 0.30);
-      const failingOdds = baseDetails?.noPrice || (cosponsors > 40 ? 0.35 : cosponsors > 25 ? 0.55 : 0.70);
+      // Use Polymarket odds if available, otherwise calculate based on cosponsors
+      const passingOdds = yesOdds !== null ? yesOdds / 100 : (baseDetails?.yesPrice || (cosponsors > 40 ? 0.65 : cosponsors > 25 ? 0.45 : 0.30));
+      const failingOdds = noOdds !== null ? noOdds / 100 : (baseDetails?.noPrice || (cosponsors > 40 ? 0.35 : cosponsors > 25 ? 0.55 : 0.70));
       
       return {
         id: billId,
@@ -285,6 +359,9 @@ const BrowsePage = () => {
         noPrice: failingOdds,
         passingOdds: passingOdds,
         failingOdds: failingOdds,
+        polymarketYesOdds: yesOdds,
+        polymarketNoOdds: noOdds,
+        polymarketVolume: polymarketData?.volume || null,
         isPassed: status === 'Passed House' || status === 'Passed Senate' || status === 'Enacted',
         isFailed: status === 'Failed',
         sector: sector,
@@ -295,7 +372,7 @@ const BrowsePage = () => {
         billUrl: bill.url || baseDetails?.billUrl || `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
       };
     });
-  }, [recentBills]);
+  }, [recentBills, polymarketOdds]);
 
   // Filter congressmen
   const filteredCongressmen = useMemo(() => {

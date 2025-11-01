@@ -338,41 +338,15 @@ export const getLegislationDetails = async (billId) => {
     };
   }
   
-  // Try to fetch relevant stocks from model API (with shorter timeout for faster page load)
-  // This is non-blocking - page will show immediately, stocks load in background
-  try {
-    const relevantStocks = await getBillRelevantStocks(billId, 3000); // 3 second timeout
-    
-    // If we got stocks from API, merge them with the base data
-    if (relevantStocks && relevantStocks.length > 0) {
-      return {
-        ...baseLegislation,
-        id: billId,
-        affectedStocks: relevantStocks.map((stock, idx) => ({
-          ...stock,
-          // Preserve any existing relevance or add default
-          relevance: stock.relevance || `This stock is affected by ${baseLegislation.title || 'this legislation'}.`,
-        })),
-      };
-    }
-    
-    // If API returned empty results, use base legislation with existing/stub stocks
-    return {
-      ...baseLegislation,
-      id: billId,
-      // Ensure affectedStocks exists even if empty
-      affectedStocks: baseLegislation.affectedStocks || [],
-    };
-  } catch (error) {
-    console.error(`Error fetching legislation details for ${billId} from model API, using base data:`, error);
-    // Return base legislation on error (from graphBills or mock)
-    return {
-      ...baseLegislation,
-      id: billId,
-      // Ensure affectedStocks exists even if empty
-      affectedStocks: baseLegislation.affectedStocks || [],
-    };
-  }
+  // Don't fetch stocks here - they take 10-15 seconds and should be fetched separately
+  // in the background after the page loads. Just return base legislation.
+  // Stocks will be fetched in LegislationBetPage after initial render.
+  return {
+    ...baseLegislation,
+    id: billId,
+    // Ensure affectedStocks exists even if empty
+    affectedStocks: baseLegislation.affectedStocks || [],
+  };
 };
 
 

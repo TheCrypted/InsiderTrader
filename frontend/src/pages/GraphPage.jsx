@@ -1,14 +1,158 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
 import Header from '../components/Header';
-import { graphNodes, graphLinks, nodeColors, sectorColors } from '../utils/graphData';
+import { graphNodes as mockGraphNodes, graphLinks as mockGraphLinks, nodeColors, sectorColors } from '../utils/graphData';
+import { getRecentBills, getAllRepresentativesBasic, loadTradesForBatch } from '../utils/api';
 import Container from '../components/shared/Container';
+import LoadingSpinner from '../components/shared/LoadingSpinner';
 
 const GraphPage = () => {
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all', 'congressman', 'bill'
+  const [loading, setLoading] = useState(true);
+  const [apiNodes, setApiNodes] = useState([]);
+  const [apiLinks, setApiLinks] = useState([]);
+
+  // Fetch API data on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        console.log('Fetching graph data from APIs...');
+        
+        // Fetch bills and congressmen in parallel
+        const [billsResponse, congressmenResponse] = await Promise.all([
+          getRecentBills(),
+          getAllRepresentativesBasic()
+        ]);
+        
+        console.log(`Fetched ${billsResponse.length} bills and ${congressmenResponse.length} congressmen`);
+        
+        // Transform bills into graph node format
+        const billNodes = billsResponse.map((bill, index) => {
+          // Extract sector from title (simple heuristic - can be improved)
+          const titleLower = (bill.title || '').toLowerCase();
+          let sector = 'Business';
+          if (titleLower.includes('tech') || titleLower.includes('digital') || titleLower.includes('data') || titleLower.includes('ai')) {
+            sector = 'Technology';
+          } else if (titleLower.includes('health') || titleLower.includes('medicare') || titleLower.includes('medical')) {
+            sector = 'Healthcare';
+          } else if (titleLower.includes('energy') || titleLower.includes('oil') || titleLower.includes('renewable')) {
+            sector = 'Energy';
+          } else if (titleLower.includes('financial') || titleLower.includes('bank') || titleLower.includes('tax')) {
+            sector = 'Financials';
+          } else if (titleLower.includes('defense') || titleLower.includes('military') || titleLower.includes('security')) {
+            sector = 'Defense';
+          }
+          
+          // Use bill_id as id, ensure it matches format
+          const billId = bill.bill_id || `BILL${index}`;
+          
+          return {
+            id: billId,
+            type: 'bill',
+            title: bill.title || 'Untitled Bill',
+            status: bill.latest_action?.text || 'Pending',
+            sector: sector,
+            date: bill.latest_action?.date || new Date().toISOString().split('T')[0],
+            cosponsors: Math.floor(Math.random() * 50) + 10, // Mock cosponsor count (API doesn't provide)
+            corporateSupport: Math.floor(Math.random() * 2000000) + 500000, // Mock support
+            committees: [], // Mock committees
+            size: Math.floor(Math.random() * 30) + 20, // Size based on cosponsors
+            url: bill.url
+          };
+        });
+        
+        // Transform congressmen into graph node format
+        // First, get trade stats for a sample of congressmen (top 50 by activity for performance)
+        const sampleSize = Math.min(50, congressmenResponse.length);
+        const congressmenWithTrades = await loadTradesForBatch(
+          congressmenResponse.slice(0, sampleSize)
+        );
+        
+        // Map all congressmen, using trade stats where available
+        const congressmanMap = new Map();
+        congressmenWithTrades.forEach(rep => {
+          congressmanMap.set(rep.id, rep);
+        });
+        
+        const congressmanNodes = congressmenResponse.map((rep) => {
+          const repWithTrades = congressmanMap.get(rep.id) || rep;
+          
+          // Calculate size based on trade volume and total trades
+          const tradeVolume = repWithTrades.tradeVolume || 0;
+          const totalTrades = repWithTrades.totalTrades || 0;
+          const size = Math.min(50, Math.max(10, Math.sqrt(tradeVolume / 1000000) + (totalTrades / 5)));
+          
+          // Get net worth from mock data if available (API doesn't provide)
+          const mockData = mockGraphNodes.find(n => n.type === 'congressman' && n.id === rep.id);
+          
+          return {
+            id: rep.id,
+            type: 'congressman',
+            name: rep.name,
+            party: rep.party,
+            chamber: rep.chamber,
+            state: rep.state,
+            image: rep.image,
+            netWorth: mockData?.netWorth || Math.floor(Math.random() * 50000000) + 1000000,
+            tradeVolume: tradeVolume,
+            totalTrades: totalTrades,
+            size: size
+          };
+        });
+        
+        // Combine API nodes
+        const allApiNodes = [...congressmanNodes, ...billNodes];
+        setApiNodes(allApiNodes);
+        
+        // Create links between bills and congressmen
+        // For now, create random connections (in the future, this could use actual sponsor/cosponsor data)
+        const links = [];
+        const apiCongressmanIds = congressmanNodes.map(c => c.id);
+        const apiBillIds = billNodes.map(b => b.id);
+        
+        // Create some sponsor links (random assignment for now)
+        apiBillIds.forEach((billId, index) => {
+          if (apiCongressmanIds.length > 0) {
+            const sponsorIndex = index % apiCongressmanIds.length;
+            links.push({
+              source: apiCongressmanIds[sponsorIndex],
+              target: billId,
+              type: 'sponsor',
+              strength: 1.0
+            });
+            
+            // Add a few random cosponsors per bill
+            const numCosponsors = Math.floor(Math.random() * 5) + 2;
+            for (let i = 0; i < numCosponsors && i < apiCongressmanIds.length - 1; i++) {
+              const cosponsorIndex = (sponsorIndex + i + 1) % apiCongressmanIds.length;
+              links.push({
+                source: apiCongressmanIds[cosponsorIndex],
+                target: billId,
+                type: 'cosponsor',
+                strength: 0.5 + Math.random() * 0.3
+              });
+            }
+          }
+        });
+        
+        setApiLinks(links);
+        console.log(`Created ${links.length} links between ${allApiNodes.length} nodes`);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching graph data:', error);
+        setLoading(false);
+        // Fall back to empty arrays (will use mock data)
+        setApiNodes([]);
+        setApiLinks([]);
+      }
+    };
+    
+    fetchData();
+  }, []);
 
   // Group nodes for better clustering
   const getNodeGroup = (node) => {
@@ -39,8 +183,12 @@ const GraphPage = () => {
 
   // Prepare graph data with positions and relationships
   const graphData = useMemo(() => {
+    // Combine API nodes with mock nodes (prioritize API data, fall back to mock)
+    const combinedNodes = apiNodes.length > 0 ? apiNodes : mockGraphNodes;
+    const combinedLinks = apiLinks.length > 0 ? apiLinks : mockGraphLinks;
+    
     // Normalize node sizes (scale between 8 and 40)
-    const sizes = graphNodes.map(n => n.size || 10);
+    const sizes = combinedNodes.map(n => n.size || 10);
     const minSize = Math.min(...sizes);
     const maxSize = Math.max(...sizes);
     const normalizeSize = (size) => {
@@ -50,13 +198,13 @@ const GraphPage = () => {
 
     // Count nodes per group for positioning
     const groupCounts = {};
-    graphNodes.forEach(node => {
+    combinedNodes.forEach(node => {
       const group = getNodeGroup(node);
       groupCounts[group] = (groupCounts[group] || 0) + 1;
     });
 
     let groupIndices = {};
-    const nodes = graphNodes.map(node => {
+    const nodes = combinedNodes.map(node => {
       const group = getNodeGroup(node);
       const groupIdx = groupIndices[group] || 0;
       groupIndices[group] = groupIdx + 1;
@@ -96,7 +244,7 @@ const GraphPage = () => {
       };
     });
 
-    const links = graphLinks.map(link => ({
+    const links = combinedLinks.map(link => ({
       ...link,
       source: typeof link.source === 'string' ? link.source : link.source.id,
       target: typeof link.target === 'string' ? link.target : link.target.id,
@@ -105,7 +253,7 @@ const GraphPage = () => {
     }));
 
     return { nodes, links };
-  }, [groupPositions]);
+  }, [groupPositions, apiNodes, apiLinks]);
 
   // Filter nodes based on selection
   const filteredData = useMemo(() => {
@@ -240,6 +388,20 @@ const GraphPage = () => {
       );
     }
   };
+
+  // Show loading spinner while fetching data
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gresearch-grey-200">
+        <Header />
+        <Container>
+          <div className="flex items-center justify-center min-h-[80vh]">
+            <LoadingSpinner size="lg" />
+          </div>
+        </Container>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gresearch-grey-200">

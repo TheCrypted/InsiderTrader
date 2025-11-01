@@ -5,6 +5,7 @@ import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
+import { getPolymarketOddsForBill, getBillRelevantStocks, getBillInfo } from '../utils/api';
 
 const LegislationBetPage = () => {
   const { billId } = useParams();
@@ -18,6 +19,7 @@ const LegislationBetPage = () => {
   // Async data loading state (from our changes)
   const [legislation, setLegislation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [stocksLoading, setStocksLoading] = useState(false); // Loading state for affected stocks from /match API
 
   // Generate historical price data
   const generatePriceHistory = (days = 30) => {
@@ -90,12 +92,12 @@ const LegislationBetPage = () => {
             cosponsors: graphBill.cosponsors || 0,
             yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
             noPrice: graphBill.cosponsors > 40 ? 0.35 : graphBill.cosponsors > 25 ? 0.55 : 0.70,
-            volume24h: 0,
-            liquidity: 0,
-            marketCap: 0,
+            volume24h: null,
+            liquidity: null,
+            marketCap: null,
             resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             resolutionCriteria: 'This market resolves based on bill passage.',
-            billUrl: `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
             committees: graphBill.committees || [],
             date: graphBill.date || new Date().toISOString().split('T')[0],
             affectedStocks: [],
@@ -132,63 +134,220 @@ const LegislationBetPage = () => {
         
         console.log('Legislation data received:', legislationData);
         
+        // Handle case where legislationData is null (timeout or error)
+        if (!legislationData) {
+          console.log('Legislation data is null, using graphBill fallback');
+          // We already handled this case above with graphBill, but if we reach here, use defaults
+          const defaultLegislation = {
+            id: billId,
+            title: graphBill?.title || `${billId} - Legislation`,
+            question: `Will ${billId} pass Congress?`,
+            summary: graphBill?.title || `${billId} - General sector legislation.`,
+            sponsor: `Sponsor of ${billId}`,
+            status: graphBill?.status || 'Pending',
+            cosponsors: graphBill?.cosponsors || 0,
+            yesPrice: graphBill?.cosponsors > 40 ? 0.65 : graphBill?.cosponsors > 25 ? 0.45 : 0.30,
+            noPrice: graphBill?.cosponsors > 40 ? 0.35 : graphBill?.cosponsors > 25 ? 0.55 : 0.70,
+            volume24h: null,
+            liquidity: null,
+            marketCap: null,
+            resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            resolutionCriteria: 'This market resolves based on bill passage.',
+            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            committees: graphBill?.committees || [],
+            date: graphBill?.date || new Date().toISOString().split('T')[0],
+            affectedStocks: [],
+            supportingCongressmen: [],
+            activitySummary: {
+              totalTrades: 0,
+              suspiciousTrades: 0,
+              totalVolume: '$0',
+              averageExcessReturn: 0
+            },
+            aiSummary: null,
+            priceHistory: generatePriceHistory(30),
+          };
+          
+          // Try to fetch bill info, Polymarket odds, and stocks in background (non-blocking)
+          Promise.all([
+            getBillInfo(billId).catch(() => null),
+            getPolymarketOddsForBill(billId).catch(() => null),
+          ]).then(([billInfo, polymarketOdds]) => {
+            const actualStatus = billInfo?.status || defaultLegislation.status;
+            const isEnacted = actualStatus === 'Enacted' || actualStatus === 'Passed Both Chambers';
+            const isFailed = actualStatus === 'Failed' || actualStatus === 'Vetoed';
+            
+            let yesPrice = defaultLegislation.yesPrice;
+            let noPrice = defaultLegislation.noPrice;
+            let showOdds = true;
+            
+            if (polymarketOdds) {
+              yesPrice = polymarketOdds.yes_percentage / 100;
+              noPrice = polymarketOdds.no_percentage / 100;
+            } else if (isEnacted) {
+              yesPrice = 1.0;
+              noPrice = 0.0;
+            } else if (isFailed) {
+              yesPrice = 0.0;
+              noPrice = 1.0;
+            } else {
+              // No Polymarket data and status unknown - show N/A
+              showOdds = false;
+              yesPrice = null;
+              noPrice = null;
+            }
+            
+            setLegislation(prev => ({
+              ...prev,
+              title: billInfo?.title || prev.title,
+              sponsor: billInfo?.sponsors?.[0]?.name || prev.sponsor,
+              status: actualStatus,
+              cosponsors: billInfo?.cosponsors_count || prev.cosponsors,
+              yesPrice: yesPrice,
+              noPrice: noPrice,
+              showOdds: showOdds,
+              volume24h: polymarketOdds?.volume ? parseInt(polymarketOdds.volume) : prev.volume24h,
+            }));
+          }).catch(err => {
+            console.error('Error fetching additional data:', err);
+          });
+          
+          setLegislation({
+            ...defaultLegislation,
+            showOdds: false, // Will update when we get bill info
+            yesPrice: null,
+            noPrice: null,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        // Fetch Polymarket odds and bill info from Congress API in parallel
+        const [polymarketOdds, billInfo] = await Promise.all([
+          getPolymarketOddsForBill(billId),
+          getBillInfo(billId).catch(err => {
+            console.warn(`Error fetching bill info for ${billId}:`, err);
+            return null;
+          })
+        ]);
+        
+        // Determine status from billInfo if available
+        const actualStatus = billInfo?.status || graphBill?.status || legislationData?.status || 'Pending';
+        const isEnacted = actualStatus === 'Enacted' || actualStatus === 'Passed Both Chambers';
+        const isFailed = actualStatus === 'Failed' || actualStatus === 'Vetoed';
+        
+        // Use Polymarket odds if available, otherwise check bill status
+        let yesPrice = legislationData?.yesPrice;
+        let noPrice = legislationData?.noPrice;
+        let showOdds = true; // Whether to show odds or status
+        
+        if (polymarketOdds) {
+          yesPrice = polymarketOdds.yes_percentage / 100;
+          noPrice = polymarketOdds.no_percentage / 100;
+          console.log(`Using Polymarket odds: Yes ${yesPrice}, No ${noPrice}`);
+        } else if (isEnacted) {
+          // Bill already passed - show 100% yes
+          yesPrice = 1.0;
+          noPrice = 0.0;
+          showOdds = true;
+        } else if (isFailed) {
+          // Bill failed - show 100% no
+          yesPrice = 0.0;
+          noPrice = 1.0;
+          showOdds = true;
+        } else if (yesPrice === undefined || noPrice === undefined) {
+          // No Polymarket data and status unknown - don't show fake odds, show N/A
+          showOdds = false;
+          yesPrice = null;
+          noPrice = null;
+        }
+        
+        // Don't use mock stocks - will be fetched from /match API
+        // const stocksToUse = legislationData?.affectedStocks || []; // MOCK DATA - COMMENTED OUT
+        const stocksToUse = []; // Start with empty array, will be populated by /match API
+        console.log(`Starting with empty stocks array, will fetch from /match API in background`);
+        
         // Ensure all required fields exist
         // Use graphBill data if available, otherwise use legislationData
         const completeLegislation = {
           id: billId,
-          title: graphBill?.title || legislationData.title || `${billId} - Legislation`,
-          question: legislationData.question || `Will ${billId} pass Congress?`,
-          summary: legislationData.summary || graphBill?.summary || `${graphBill?.title || billId} - ${graphBill?.sector || 'General'} sector legislation.`,
-          sponsor: legislationData.sponsor || `Sponsor of ${billId}`,
-          status: graphBill?.status || legislationData.status || 'Pending',
-          cosponsors: graphBill?.cosponsors || legislationData.cosponsors || 0,
-          yesPrice: legislationData.yesPrice || (graphBill && graphBill.cosponsors > 40 ? 0.65 : graphBill && graphBill.cosponsors > 25 ? 0.45 : 0.30),
-          noPrice: legislationData.noPrice || (graphBill && graphBill.cosponsors > 40 ? 0.35 : graphBill && graphBill.cosponsors > 25 ? 0.55 : 0.70),
-          volume24h: legislationData.volume24h || 0,
-          liquidity: legislationData.liquidity || 0,
-          marketCap: legislationData.marketCap || 0,
-          resolutionDate: legislationData.resolutionDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          resolutionCriteria: legislationData.resolutionCriteria || 'This market resolves based on bill passage.',
-          billUrl: legislationData.billUrl || `https://www.congress.gov/bill/117th-congress/house-bill/${billId.replace(/[^0-9]/g, '')}`,
-          committees: legislationData.committees || graphBill?.committees || [],
-          date: graphBill?.date || legislationData.date || new Date().toISOString().split('T')[0],
-          affectedStocks: legislationData.affectedStocks || [],
-          supportingCongressmen: legislationData.supportingCongressmen || [],
-          activitySummary: legislationData.activitySummary || {
+          title: billInfo?.title || graphBill?.title || legislationData?.title || `${billId} - Legislation`,
+          question: legislationData?.question || `Will ${billId} pass Congress?`,
+          summary: legislationData?.summary || graphBill?.summary || `${billInfo?.title || graphBill?.title || billId} - ${graphBill?.sector || 'General'} sector legislation.`,
+          sponsor: billInfo?.sponsors?.[0]?.name || legislationData?.sponsor || `Sponsor of ${billId}`,
+          status: actualStatus,
+          cosponsors: billInfo?.cosponsors_count || graphBill?.cosponsors || legislationData?.cosponsors || 0,
+          yesPrice: yesPrice,
+          noPrice: noPrice,
+          showOdds: showOdds, // Whether to show odds or status/N/A
+          // Show N/A for volume/liquidity/marketCap if no Polymarket data
+          volume24h: polymarketOdds?.volume ? parseInt(polymarketOdds.volume) : null,
+          liquidity: polymarketOdds ? (legislationData?.liquidity || null) : null,
+          marketCap: polymarketOdds ? (legislationData?.marketCap || null) : null,
+          resolutionDate: legislationData?.resolutionDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          resolutionCriteria: legislationData?.resolutionCriteria || 'This market resolves based on bill passage.',
+          billUrl: legislationData?.billUrl || `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+          committees: legislationData?.committees || graphBill?.committees || [],
+          date: graphBill?.date || legislationData?.date || new Date().toISOString().split('T')[0],
+          affectedStocks: stocksToUse,
+          supportingCongressmen: legislationData?.supportingCongressmen || [],
+          activitySummary: legislationData?.activitySummary || {
             totalTrades: 0,
             suspiciousTrades: 0,
             totalVolume: '$0',
             averageExcessReturn: 0
           },
-          aiSummary: legislationData.aiSummary || null,
+          aiSummary: legislationData?.aiSummary || null,
           priceHistory: generatePriceHistory(30),
         };
         
         setLegislation(completeLegislation);
+        setLoading(false);
       } catch (error) {
         console.error('Error fetching legislation:', error);
         // Try to get from graphBills as fallback
         const { graphBills } = await import('../utils/graphData');
         const graphBill = graphBills.find(b => b.id === billId);
         
+        // Try to fetch bill info to get actual status (in background, non-blocking)
+        const billInfo = await getBillInfo(billId).catch(() => null);
+        const actualStatus = billInfo?.status || graphBill?.status || 'Pending';
+        const isEnacted = actualStatus === 'Enacted' || actualStatus === 'Passed Both Chambers';
+        const isFailed = actualStatus === 'Failed' || actualStatus === 'Vetoed';
+        
+        let yesPrice = null;
+        let noPrice = null;
+        let showOdds = false;
+        
+        if (isEnacted) {
+          yesPrice = 1.0;
+          noPrice = 0.0;
+          showOdds = true;
+        } else if (isFailed) {
+          yesPrice = 0.0;
+          noPrice = 1.0;
+          showOdds = true;
+        }
+        
         if (graphBill) {
           // Use graphBill data
           setLegislation({
             id: billId,
-            title: graphBill.title,
+            title: billInfo?.title || graphBill.title,
             question: `Will ${billId} pass Congress?`,
             summary: `${graphBill.title} - ${graphBill.sector} sector legislation.`,
-            sponsor: `Sponsor of ${billId}`,
-            status: graphBill.status || 'Pending',
-            cosponsors: graphBill.cosponsors || 0,
-            yesPrice: graphBill.cosponsors > 40 ? 0.65 : graphBill.cosponsors > 25 ? 0.45 : 0.30,
-            noPrice: graphBill.cosponsors > 40 ? 0.35 : graphBill.cosponsors > 25 ? 0.55 : 0.70,
-            volume24h: 0,
-            liquidity: 0,
-            marketCap: 0,
+            sponsor: billInfo?.sponsors?.[0]?.name || `Sponsor of ${billId}`,
+            status: actualStatus,
+            cosponsors: billInfo?.cosponsors_count || graphBill.cosponsors || 0,
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            showOdds: showOdds,
+            volume24h: null,
+            liquidity: null,
+            marketCap: null,
             resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             resolutionCriteria: 'This market resolves based on bill passage.',
-            billUrl: `https://www.congress.gov/bill/117th-congress/${billId.includes('H') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
             committees: graphBill.committees || [],
             date: graphBill.date || new Date().toISOString().split('T')[0],
             affectedStocks: [],
@@ -203,12 +362,40 @@ const LegislationBetPage = () => {
             priceHistory: generatePriceHistory(30),
           });
         } else {
-          // Final fallback: use mock data
+          // Final fallback: use mock data but fetch bill info to get actual status
           const { legislationDetails } = await import('../utils/legislationData');
           const fallbackData = legislationDetails[billId] || legislationDetails['H.R.1234'];
+          
+          // Try to fetch bill info to get actual status
+          const billInfo = await getBillInfo(billId).catch(() => null);
+          const actualStatus = billInfo?.status || fallbackData.status || 'Pending';
+          const isEnacted = actualStatus === 'Enacted' || actualStatus === 'Passed Both Chambers';
+          const isFailed = actualStatus === 'Failed' || actualStatus === 'Vetoed';
+          
+          let yesPrice = null;
+          let noPrice = null;
+          let showOdds = false;
+          
+          if (isEnacted) {
+            yesPrice = 1.0;
+            noPrice = 0.0;
+            showOdds = true;
+          } else if (isFailed) {
+            yesPrice = 0.0;
+            noPrice = 1.0;
+            showOdds = true;
+          }
+          
           setLegislation({
             ...fallbackData,
             id: billId,
+            title: billInfo?.title || fallbackData.title,
+            sponsor: billInfo?.sponsors?.[0]?.name || fallbackData.sponsor,
+            status: actualStatus,
+            cosponsors: billInfo?.cosponsors_count || fallbackData.cosponsors || 0,
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            showOdds: showOdds,
             priceHistory: generatePriceHistory(30)
           });
         }
@@ -222,10 +409,57 @@ const LegislationBetPage = () => {
     }
   }, [billId]);
 
-  // Get sponsor congressman image
-  const sponsorCongressman = legislation.supportingCongressmen?.find(c => c.role === 'Sponsor') || 
-                               (legislation.sponsorId && legislation.supportingCongressmen?.find(c => c.id === legislation.sponsorId)) ||
-                               legislation.supportingCongressmen?.[0];
+  // Fetch stocks from /match API in background after legislation is loaded (useEffect to avoid React warning)
+  useEffect(() => {
+    if (!legislation || !billId) return;
+    
+    // Always fetch from /match API - no mock data
+    console.log(`Fetching related stocks for ${billId} from /match API (timeout: 15s)...`);
+    setStocksLoading(true);
+    
+    let cancelled = false;
+    
+    getBillRelevantStocks(billId, 15000)
+      .then(relatedStocks => {
+        if (cancelled) return;
+        
+        if (relatedStocks && relatedStocks.length > 0) {
+          console.log(`✓ Fetched ${relatedStocks.length} related stocks for bill ${billId} from /match API`);
+          setLegislation(prev => ({
+            ...prev,
+            affectedStocks: relatedStocks, // Use API data only
+          }));
+        } else {
+          console.log(`No related stocks found for bill ${billId} from /match API`);
+          // Set to empty array - will show N/A
+          setLegislation(prev => ({
+            ...prev,
+            affectedStocks: [],
+          }));
+        }
+        setStocksLoading(false);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.warn(`✗ Error fetching stocks from /match API for bill ${billId}:`, error.message || error);
+        // On error, set to empty array - will show N/A
+        setLegislation(prev => ({
+          ...prev,
+          affectedStocks: [],
+        }));
+        setStocksLoading(false);
+      });
+    
+    return () => {
+      cancelled = true;
+      setStocksLoading(false);
+    };
+  }, [legislation?.id, billId]); // Re-fetch if billId changes
+
+  // Get sponsor congressman image (only if legislation is loaded)
+  const sponsorCongressman = legislation?.supportingCongressmen?.find(c => c.role === 'Sponsor') || 
+                               (legislation?.sponsorId && legislation?.supportingCongressmen?.find(c => c.id === legislation.sponsorId)) ||
+                               legislation?.supportingCongressmen?.[0];
 
   // Filter price history based on time range
   const getFilteredHistory = () => {
@@ -266,6 +500,7 @@ const LegislationBetPage = () => {
   const priceHistory = getFilteredHistory();
 
   const formatCurrency = (value) => {
+    if (value === null || value === undefined || value === 0) return 'N/A';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -275,6 +510,7 @@ const LegislationBetPage = () => {
   };
 
   const formatPercent = (value) => {
+    if (value === null || value === undefined) return 'N/A';
     return `${(value * 100).toFixed(1)}%`;
   };
 
@@ -532,17 +768,33 @@ const LegislationBetPage = () => {
               <div className="bg-white p-6 border-r border-black">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-2xl font-bold text-gray-900">YES</div>
-                  <div className="text-3xl font-bold text-gray-900">{formatPercent(legislation.yesPrice)}</div>
+                  {legislation.showOdds !== false && legislation.yesPrice !== null ? (
+                    <div className="text-3xl font-bold text-gray-900">{formatPercent(legislation.yesPrice)}</div>
+                  ) : (
+                    <div className="text-3xl font-bold text-gray-500">N/A</div>
+                  )}
                 </div>
-                <div className="text-sm text-gray-600 mb-4">Market prediction: Bill will pass</div>
-                <div className="h-2 bg-gray-200 border border-black overflow-hidden">
-                  <div 
-                    className="h-full bg-gresearch-vivid-green transition-all"
-                    style={{ width: `${legislation.yesPrice * 100}%` }}
-                  />
+                <div className="text-sm text-gray-600 mb-4">
+                  {legislation.showOdds !== false && legislation.yesPrice !== null 
+                    ? 'Market prediction: Bill will pass' 
+                    : `Status: ${legislation.status || 'Pending'}`}
                 </div>
+                {legislation.showOdds !== false && legislation.yesPrice !== null ? (
+                  <div className="h-2 bg-gray-200 border border-black overflow-hidden">
+                    <div 
+                      className="h-full bg-gresearch-vivid-green transition-all"
+                      style={{ width: `${legislation.yesPrice * 100}%` }}
+                    />
+                  </div>
+                ) : (
+                  <div className="h-2 bg-gray-200 border border-black overflow-hidden">
+                    <div className="bg-gray-400 h-full w-full" />
+                  </div>
+                )}
                 <div className="mt-4 text-xs text-gray-500">
-                  Based on current market sentiment and analysis
+                  {legislation.showOdds !== false && legislation.yesPrice !== null 
+                    ? 'Based on current market sentiment and analysis'
+                    : 'No prediction market data available'}
                 </div>
               </div>
 
@@ -550,17 +802,33 @@ const LegislationBetPage = () => {
               <div className="bg-white p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-2xl font-bold text-gray-900">NO</div>
-                  <div className="text-3xl font-bold text-gray-900">{formatPercent(legislation.noPrice)}</div>
+                  {legislation.showOdds !== false && legislation.noPrice !== null ? (
+                    <div className="text-3xl font-bold text-gray-900">{formatPercent(legislation.noPrice)}</div>
+                  ) : (
+                    <div className="text-3xl font-bold text-gray-500">N/A</div>
+                  )}
                 </div>
-                <div className="text-sm text-gray-600 mb-4">Market prediction: Bill will fail</div>
-                <div className="h-2 bg-gray-200 border border-black overflow-hidden">
-                  <div 
-                    className="h-full bg-gresearch-vivid-red transition-all"
-                    style={{ width: `${legislation.noPrice * 100}%` }}
-                  />
+                <div className="text-sm text-gray-600 mb-4">
+                  {legislation.showOdds !== false && legislation.noPrice !== null 
+                    ? 'Market prediction: Bill will fail' 
+                    : `Status: ${legislation.status || 'Pending'}`}
                 </div>
+                {legislation.showOdds !== false && legislation.noPrice !== null ? (
+                  <div className="h-2 bg-gray-200 border border-black overflow-hidden">
+                    <div 
+                      className="h-full bg-gresearch-vivid-red transition-all"
+                      style={{ width: `${legislation.noPrice * 100}%` }}
+                    />
+                  </div>
+                ) : (
+                  <div className="h-2 bg-gray-200 border border-black overflow-hidden">
+                    <div className="bg-gray-400 h-full w-full" />
+                  </div>
+                )}
                 <div className="mt-4 text-xs text-gray-500">
-                  Based on current market sentiment and analysis
+                  {legislation.showOdds !== false && legislation.noPrice !== null 
+                    ? 'Based on current market sentiment and analysis'
+                    : 'No prediction market data available'}
                 </div>
               </div>
             </div>
@@ -746,36 +1014,48 @@ const LegislationBetPage = () => {
               <p className="text-sm text-gray-600 mb-4">
                 Companies that would be impacted by this legislation
               </p>
-              <div className="space-y-0">
-                {legislation.affectedStocks && legislation.affectedStocks.map((stock, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`p-4 ${idx === legislation.affectedStocks.length - 1 ? '' : 'border-b border-black'}`}
-                    style={{
-                      backgroundColor: stock.change >= 0 ? 'rgba(34, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)'
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-10 h-10 bg-gray-100 border border-black flex items-center justify-center font-bold text-gray-700 flex-shrink-0">
-                          {stock.symbol}
+              {stocksLoading ? (
+                <div className="p-8 flex flex-col items-center justify-center">
+                  <LoadingSpinner size="md" />
+                  <p className="text-sm text-gray-500 mt-4">Loading affected stocks from API...</p>
+                </div>
+              ) : legislation.affectedStocks && legislation.affectedStocks.length > 0 ? (
+                <div className="space-y-0">
+                  {legislation.affectedStocks.map((stock, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`p-4 ${idx === legislation.affectedStocks.length - 1 ? '' : 'border-b border-black'}`}
+                      style={{
+                        backgroundColor: stock.change >= 0 ? 'rgba(34, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)'
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-10 h-10 bg-gray-100 border border-black flex items-center justify-center font-bold text-gray-700 flex-shrink-0">
+                            {stock.symbol}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-gray-900 truncate">{stock.name}</div>
+                            <div className="text-xs text-gray-500 truncate">{stock.sector}</div>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-gray-900 truncate">{stock.name}</div>
-                          <div className="text-xs text-gray-500 truncate">{stock.sector}</div>
+                        <div className="text-right ml-4 flex-shrink-0">
+                          <div className="text-lg font-semibold text-gray-900">${stock.currentPrice.toFixed(2)}</div>
+                          <div className={`text-sm font-medium ${stock.change >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'}`}>
+                            {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%)
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">Mkt Cap: {stock.marketCap}</div>
                         </div>
-                      </div>
-                      <div className="text-right ml-4 flex-shrink-0">
-                        <div className="text-lg font-semibold text-gray-900">${stock.currentPrice.toFixed(2)}</div>
-                        <div className={`text-sm font-medium ${stock.change >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'}`}>
-                          {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.changePercent >= 0 ? '+' : ''}{stock.changePercent.toFixed(2)}%)
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">Mkt Cap: {stock.marketCap}</div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-gray-500">
+                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
+                  <p className="text-sm text-gray-500">No affected stocks found from API</p>
+                </div>
+              )}
             </div>
 
             {/* Quick Stats */}
