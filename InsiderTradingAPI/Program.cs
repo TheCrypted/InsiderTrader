@@ -5,7 +5,12 @@ using Microsoft.EntityFrameworkCore;
 using DateTime = System.DateTime;
 using JsonElement = System.Text.Json.JsonElement;
 using JsonValueKind = System.Text.Json.JsonValueKind;
+using DotNetEnv;
 
+// Load .env file into environment variables
+Env.Load();
+
+var finnhubToken = Environment.GetEnvironmentVariable("FINNHUB_TOKEN");
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -26,7 +31,7 @@ builder.Services.AddHttpClient("bio", client =>
 
 // Add SQLite database
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
                       ?? "Data Source=data/app.db"));
 
 var app = builder.Build();
@@ -59,7 +64,7 @@ using (var scope = app.Services.CreateScope())
             if (string.IsNullOrWhiteSpace(fullName))
             {
                 var first = GetString(elem, "name", "first");
-                var last  = GetString(elem, "name", "last");
+                var last = GetString(elem, "name", "last");
                 fullName = $"{first} {last}".Trim();
             }
 
@@ -181,6 +186,7 @@ static async Task<string> GetBioGuideImageUrlAsync(string bioGuideId, HttpClient
             await Task.Delay(TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt)));
         }
     }
+
     return "";
 }
 
@@ -193,7 +199,21 @@ if (app.Environment.IsDevelopment()) {
 
 app.UseHttpsRedirection();
 
+
+app.MapGet("/test", () => { return $"hello world!"; });
+
 app.MapGet("/politician-info/{bioGuideId}", async (string bioGuideId, AppDbContext db) =>
     await db.Politicians.Where(p => p.bioGuideId == bioGuideId).ToListAsync());
+
+app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string? fromDate, string? toDate) =>
+{
+    using var httpClient = new HttpClient();
+    var apiUrl = $"https://finnhub.io/api/v1/stock/lobbying?symbol={symbol}&from={fromDate ?? "2021-01-01"}&to={toDate ?? "2022-12-31"}&token={TOKEN}";
+    var response = await httpClient.GetAsync(apiUrl);
+    if (!response.IsSuccessStatusCode)
+        return Results.StatusCode((int)response.StatusCode);
+    var content = await response.Content.ReadAsStringAsync();
+    return Results.Content(content, "application/json");
+});
 
 app.Run();
