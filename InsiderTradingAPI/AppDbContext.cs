@@ -16,7 +16,8 @@ public record Politician(
     string dateOfBirth,
     string politicalParty,
     string position,
-    string territory
+    string territory,
+    string imageUrl
 );
     
 record Trade(string bioGuideId, string fullName, string ticker,
