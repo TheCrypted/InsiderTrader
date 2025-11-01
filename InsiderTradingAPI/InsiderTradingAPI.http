@@ -4,3 +4,12 @@ GET {{InsiderTradingAPI_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+POST {{InsiderTradingAPI_HostAddress}}/weatherforecast/
+Content-Type: application/json
+
+{
+  "date": "2024-07-01T00:00:00Z",
+  "temperatureC": 25,
+  "summary": "Sunny"
+}

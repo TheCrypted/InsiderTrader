@@ -17,4 +17,9 @@ RUN dotnet publish "InsiderTradingAPI.csproj" -c Release -o /app/publish /p:UseA
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+
+# Create directory for SQLite database
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
 ENTRYPOINT ["dotnet", "InsiderTradingAPI.dll"]
