@@ -1,7 +1,6 @@
 const CongressmanTabs = ({ activeTab, onTabChange }) => {
   const tabs = [
     { id: 'trades', label: 'Trades' },
-    { id: 'portfolio', label: 'Live Stock Portfolio' },
     { id: 'networth', label: 'Net Worth' },
     { id: 'donors', label: 'Corporate Donors' },
     { id: 'legislation', label: 'Proposed Legislation' }

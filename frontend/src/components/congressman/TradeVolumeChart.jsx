@@ -42,26 +42,29 @@ const TradeVolumeChart = ({ data, loading }) => {
       const totalVolume = buyValue + sellValue;
 
       return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg animate-fade-in">
-          <p className="font-semibold text-gray-900 mb-2">Year: {label}</p>
-          <div className="space-y-1 text-sm">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-gray-600">Total Volume:</span>
-              <span className="font-semibold text-gray-900">{formatCurrency(totalVolume)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#a7f3d0' }}></div>
-                <span className="text-gray-600">Buy:</span>
+        <div className="bg-white border border-black">
+          {/* Content */}
+          <div className="p-3">
+            <p className="font-semibold text-gray-900 mb-2 border-b border-black pb-2">Year: {label}</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between gap-4 border-b border-black pb-2">
+                <span className="text-gray-600">Total Volume:</span>
+                <span className="font-semibold text-gray-900">{formatCurrency(totalVolume)}</span>
               </div>
-              <span className="font-semibold text-gray-900">{formatCurrency(buyValue)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded" style={{ backgroundColor: '#fca5a5' }}></div>
-                <span className="text-gray-600">Sell:</span>
+              <div className="flex items-center justify-between gap-4 border-b border-black pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3" style={{ backgroundColor: '#34d399' }}></div>
+                  <span className="text-gray-600">Buy:</span>
+                </div>
+                <span className="font-semibold text-gray-900">{formatCurrency(buyValue)}</span>
               </div>
-              <span className="font-semibold text-gray-900">{formatCurrency(sellValue)}</span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3" style={{ backgroundColor: '#f87171' }}></div>
+                  <span className="text-gray-600">Sell:</span>
+                </div>
+                <span className="font-semibold text-gray-900">{formatCurrency(sellValue)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -76,11 +79,11 @@ const TradeVolumeChart = ({ data, loading }) => {
         <h3 className="text-sm font-semibold text-gray-900 mb-1">Trade Volume by Year</h3>
         <div className="flex gap-3 text-xs">
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#a7f3d0' }}></div>
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#34d399' }}></div>
             <span>Buy</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#fca5a5' }}></div>
+            <div className="w-3 h-3 rounded" style={{ backgroundColor: '#f87171' }}></div>
             <span>Sell</span>
           </div>
         </div>
@@ -94,16 +97,18 @@ const TradeVolumeChart = ({ data, loading }) => {
           <Legend />
           <Bar 
             dataKey="buy" 
-            fill="#a7f3d0" 
+            fill="#34d399" 
             name="Buy"
-            radius={[4, 4, 0, 0]}
+            barSize={20}
+            radius={[0, 0, 0, 0]}
             animationDuration={800}
           />
           <Bar 
             dataKey="sell" 
-            fill="#fca5a5" 
+            fill="#f87171" 
             name="Sell"
-            radius={[4, 4, 0, 0]}
+            barSize={20}
+            radius={[0, 0, 0, 0]}
             animationDuration={800}
           />
         </BarChart>

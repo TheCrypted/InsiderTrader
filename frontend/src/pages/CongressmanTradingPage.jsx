@@ -8,7 +8,6 @@ import CongressmanTabs from '../components/congressman/CongressmanTabs';
 import TradeVolumeChart from '../components/congressman/TradeVolumeChart';
 import SectorPieChart from '../components/congressman/SectorPieChart';
 import TradesTable from '../components/congressman/TradesTable';
-import LiveStockPortfolio from '../components/congressman/LiveStockPortfolio';
 import NetWorth from '../components/congressman/NetWorth';
 import CorporateDonors from '../components/congressman/CorporateDonors';
 import ProposedLegislation from '../components/congressman/ProposedLegislation';
@@ -39,10 +38,6 @@ const CongressmanTradingPage = () => {
               </div>
             </div>
           </div>
-        );
-      case 'portfolio':
-        return (
-          <LiveStockPortfolio congressmanId={id} loading={loadingTrades} />
         );
       case 'networth':
         return (
@@ -93,9 +88,9 @@ const CongressmanTradingPage = () => {
               </div>
             </div>
 
-            {/* Content Section - Grid with black border */}
-            <div className="border-b border-black">
-              <div className="px-6 py-4">{renderTabContent()}</div>
+            {/* Content Section - Grid with black border, no padding */}
+            <div className="-b border-black">
+              {renderTabContent()}
             </div>
           </div>
         </div>
