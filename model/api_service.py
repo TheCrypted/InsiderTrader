@@ -1066,25 +1066,86 @@ def build_bill_graph(
         "edges": [{"source": s, "target": t, "relation": r} for (s, t, r) in sorted(all_edges)],
     }
 
+def fetch_recent_bills(congress: Optional[int] = None, limit: int = 20) -> list:
+    """
+    Fetch recent bills for a given Congress from Congress.gov (client-side sorted by introducedDate desc).
+    Returns a list of dicts: [{"bill_type": "hr", "bill_number": 3076}, ...]
+    """
+    congress_num = congress or CONGRESS
+    endpoint = "https://api.congress.gov/v3/bill"
+    # We keep params minimal & sort client-side for robustness across API shapes.
+    params = {"api_key": CONGRESS_API_KEY, "format": "json", "congress": congress_num, "limit": 250}
+
+    try:
+        resp = _get(endpoint, params=params)
+        data = resp.json()
+    except Exception as e:
+        # Fail soft: return empty set if upstream fails
+        return []
+
+    items = data.get("bills") or data.get("results") or data.get("items") or []
+    out = []
+    for b in items:
+        # Congress.gov commonly exposes "type" and "number" on bill summaries
+        bt = (b.get("type") or "").lower()
+        bn = b.get("number")
+        if not bt or not bn:
+            # Sometimes the fields live under "bill" nested key
+            bb = b.get("bill") or {}
+            bt = (bt or bb.get("type") or "").lower()
+            bn = bn or bb.get("number")
+        try:
+            bn_int = int(str(bn))
+        except Exception:
+            continue
+
+        introduced = (b.get("introducedDate")
+                      or (b.get("bill") or {}).get("introducedDate")
+                      or "")
+        out.append({
+            "bill_type": bt,
+            "bill_number": bn_int,
+            "introduced_date": introduced
+        })
+
+    # Sort newest introducedDate first, keep top N
+    out.sort(key=lambda x: x.get("introduced_date") or "", reverse=True)
+    # Dedup by (type, number) while preserving order
+    seen = set()
+    deduped = []
+    for rec in out:
+        key = (rec["bill_type"], rec["bill_number"])
+        if key in seen: continue
+        seen.add(key)
+        deduped.append({"bill_type": rec["bill_type"], "bill_number": rec["bill_number"]})
+        if len(deduped) >= limit:
+            break
+    return deduped
+
 # ---------- Endpoint: GET /graph ----------
 @app.get("/graph")
 def get_graph(
-    source: str = Query("polymarket", description="polymarket|manual"),
+    source: str = Query("combined", description="combined|polymarket|manual|recent"),
     bills: Optional[str] = Query(
         None,
-        description="Comma-separated list like 'hr.3076,s.1260'. Used when source=manual."
+        description="Comma-separated like 'hr.3076,s.1260' (only used when source=manual)."
     ),
     congress: Optional[int] = Query(None, description="Congress number (default 117)"),
-    limit: int = Query(10, ge=1, le=200, description="Max bills to include from source")
+    limit: int = Query(10, ge=1, le=200, description="Max Polymarket bills to include"),
+    recent_limit: int = Query(10, ge=0, le=200, description="Max recent bills to include"),
 ):
     """
-    Return a JSON graph with:
-      - nodes: [{id, type: 'bill'|'person', label, ...}]
-      - edges: [{source, target, relation: 'sponsor'|'cosponsor'}]
+    Build a sponsor/cosponsor graph:
+      - source=combined (default): Polymarket (limit) + recent Congress.gov (recent_limit)
+      - source=polymarket: only Polymarket (limit)
+      - source=recent: only recent Congress.gov (recent_limit)
+      - source=manual: only ?bills=hr.XXXX,s.YYYY
+    Returns: { nodes: [...], edges: [...] }
     """
     bill_list = []
 
-    if source.lower() == "manual":
+    src = source.lower()
+    if src == "manual":
         if not bills:
             raise HTTPException(status_code=400, detail="Provide ?bills=hr.XXXX,s.YYYY when source=manual")
         for token in bills.split(","):
@@ -1093,16 +1154,36 @@ def get_graph(
             if not m:
                 continue
             bill_list.append({"bill_type": m.group(1).lower(), "bill_number": int(m.group(2))})
-        if not bill_list:
-            raise HTTPException(status_code=400, detail="No valid bills parsed from input.")
-    else:
-        # source = polymarket (default)
-        markets = fetch_bills(congress=congress)  # uses your Polymarket fetch with parsing
+
+    elif src == "polymarket":
+        markets = fetch_bills(congress=congress)  # already parses bill ids
         for mkt in markets:
             if mkt.get("bill_type") and mkt.get("bill_number"):
                 bill_list.append({"bill_type": mkt["bill_type"], "bill_number": int(mkt["bill_number"])})
             if len(bill_list) >= limit:
                 break
 
-    graph = build_bill_graph(bill_list, congress=congress)
+    elif src == "recent":
+        bill_list = fetch_recent_bills(congress=congress, limit=recent_limit)
+
+    else:  # "combined" (default)
+        # 1) polymarket slice
+        markets = fetch_bills(congress=congress)
+        for mkt in markets:
+            if mkt.get("bill_type") and mkt.get("bill_number"):
+                bill_list.append({"bill_type": mkt["bill_type"], "bill_number": int(mkt["bill_number"])})
+            if len(bill_list) >= limit:
+                break
+        # 2) recent slice
+        recents = fetch_recent_bills(congress=congress, limit=recent_limit)
+        bill_list.extend(recents)
+
+    # Deduplicate before building graph
+    uniq = {}
+    for b in bill_list:
+        key = (b["bill_type"], int(b["bill_number"]))
+        uniq[key] = {"bill_type": b["bill_type"], "bill_number": int(b["bill_number"])}
+    merged_bill_list = list(uniq.values())
+
+    graph = build_bill_graph(merged_bill_list, congress=congress)
     return JSONResponse(graph)
