@@ -134,8 +134,7 @@ if (app.Environment.IsDevelopment()) {
 
 app.UseHttpsRedirection();
 
-app.MapGet("/test", () => {
-    return $"hello world!";
-});
+app.MapGet("/politician-info/{bioGuideId}", async (string bioGuideId, AppDbContext db) =>
+    await db.Politicians.Where(p => p.bioGuideId == bioGuideId).ToListAsync());
 
 app.Run();
