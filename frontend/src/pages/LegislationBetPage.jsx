@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
@@ -113,7 +114,9 @@ const LegislationBetPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gresearch-grey-200 py-8">
+    <div className="min-h-screen bg-gresearch-grey-200">
+      <Header />
+      <div className="py-8">
       <Container>
         {/* Back Link */}
         <div className="mb-6">
@@ -579,6 +582,7 @@ const LegislationBetPage = () => {
           </div>
         </div>
       </Container>
+      </div>
     </div>
   );
 };

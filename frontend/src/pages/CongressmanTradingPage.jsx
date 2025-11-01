@@ -89,7 +89,7 @@ const CongressmanTradingPage = () => {
             </div>
 
             {/* Content Section - Grid with black border, no padding */}
-            <div className="-b border-black">
+            <div className="border-b border-black">
               {renderTabContent()}
             </div>
           </div>

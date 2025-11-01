@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
+import Header from '../components/Header';
 import { graphNodes, graphLinks, nodeColors, sectorColors } from '../utils/graphData';
 import Container from '../components/shared/Container';
 
@@ -241,7 +242,9 @@ const GraphPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gresearch-grey-200 py-8">
+    <div className="min-h-screen bg-gresearch-grey-200">
+      <Header />
+      <div className="py-8">
       <Container>
         {/* Header */}
         <div className="mb-6">
@@ -481,6 +484,7 @@ const GraphPage = () => {
           </div>
         </div>
       </Container>
+      </div>
     </div>
   );
 };
