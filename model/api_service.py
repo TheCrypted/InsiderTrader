@@ -861,3 +861,48 @@ def get_bills(
     enriched with Congress.gov bill info in the 'info' field.
     """
     return JSONResponse(fetch_bills(congress=congress))
+
+@app.get("/cosponsors")
+def get_bill_cosponsors(
+    bill_type: str = Query(..., description="Bill type (e.g., 'hr', 's', 'hjres')"),
+    bill_number: int = Query(..., description="Bill number", ge=1),
+    congress: Optional[int] = Query(None, description="Congress number (default: 117)")
+):
+    """
+    Fetch and return the cosponsors for a given bill using the Congress.gov API.
+    Example: /cosponsors?bill_type=hr&bill_number=3076
+    """
+    congress_num = congress or CONGRESS
+    bill_type_lower = bill_type.lower()
+    endpoint = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type_lower}/{bill_number}/cosponsors"
+    params = {"api_key": CONGRESS_API_KEY, "format": "json", "limit": 250}
+
+    try:
+        resp = _get(endpoint, params=params)
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Cosponsors not found: {str(e)}")
+
+    cosponsors = []
+    # Congress.gov can return "cosponsors" or "items" depending on version
+    items = data.get("cosponsors") or data.get("items") or []
+    if isinstance(items, dict):
+        items = items.get("cosponsors") or items.get("items") or []
+
+    for c in items:
+        cosponsors.append({
+            "name": c.get("fullName"),
+            "party": c.get("party"),
+            "state": c.get("state"),
+            "district": c.get("district"),
+            "sponsorship_date": c.get("sponsorshipDate"),
+            "withdrawn_date": c.get("withdrawnDate"),
+            "bioguide_id": c.get("bioguideId"),
+        })
+
+    return JSONResponse({
+        "bill_id": f"{bill_type.upper()}.{bill_number}",
+        "congress": congress_num,
+        "cosponsor_count": len(cosponsors),
+        "cosponsors": cosponsors,
+    })
