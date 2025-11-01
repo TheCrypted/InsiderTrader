@@ -1,3 +1,5 @@
+import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import CongressmanTradingPage from './pages/CongressmanTradingPage'
 import './App.css'
 import Header from './components/Header'
 import HeroSection from './components/HeroSection'
@@ -11,7 +13,7 @@ function App() {
     console.log('Searching for:', query)
   }
 
-  return (
+  const DashboardPage = () => (
     <div className="min-h-screen bg-black text-white">
       <Header />
       
@@ -34,6 +36,14 @@ function App() {
 
       <TrendingNewsFeed />
     </div>
+  )
+
+  return (
+    <Routes>
+      <Route path="/" element={<DashboardPage />} />
+      <Route path="/congressman/:id/trading" element={<CongressmanTradingPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 
