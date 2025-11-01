@@ -8,7 +8,7 @@ using DotNetEnv;
 // Load .env file into environment variables
 Env.Load();
 
-var TOKEN = Environment.GetEnvironmentVariable("TOKEN");
+var finnhubToken = Environment.GetEnvironmentVariable("FINNHUB_TOKEN");
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
