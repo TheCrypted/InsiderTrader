@@ -22,7 +22,7 @@ export default function Header() {
         <div className="flex items-stretch h-full pr-16">
           <Link
             to="/browse"
-            className="flex items-center px-4 py-2 bg-white text-black border-2 border-black font-medium hover:bg-gray-200 transition-all duration-200"
+            className="flex items-center px-4 py-2 bg-black text-white font-normal hover:bg-stone-900 transition-all duration-200"
           >
             Browse All
           </Link>

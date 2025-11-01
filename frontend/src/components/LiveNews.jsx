@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const NEWS_ARTICLES = [
@@ -75,35 +74,28 @@ const NEWS_ARTICLES = [
 ];
 
 export default function LiveNews() {
-  const [hoveredArticle, setHoveredArticle] = useState(null);
-  const [hoveredTag, setHoveredTag] = useState(null);
-
-  const getImpactColor = (impact) => {
-    switch (impact) {
-      case 'Critical':
-        return 'bg-red-100 text-red-800 border-red-200';
-      case 'High':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'Medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+  // Hash function to generate consistent colors from strings
+  const hashString = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
     }
+    return Math.abs(hash);
   };
 
-  const getTagColor = (type) => {
-    switch (type) {
-      case 'congressman':
-        return 'bg-blue-100 text-blue-700';
-      case 'bill':
-        return 'bg-purple-100 text-purple-700';
-      case 'stock':
-        return 'bg-green-100 text-green-700';
-      case 'sector':
-        return 'bg-gray-100 text-gray-700';
-      default:
-        return 'bg-gray-100 text-gray-700';
-    }
+  // Generate a faint color from a string hash
+  const getFaintColor = (str) => {
+    if (!str) return 'rgba(0, 0, 0, 0)'; // Transparent for empty tags
+    
+    const hash = hashString(str);
+    // Generate HSL color with low saturation and high lightness for faint appearance
+    const hue = hash % 360;
+    const saturation = 15 + (hash % 10); // 15-25% saturation
+    const lightness = 92 + (hash % 6); // 92-97% lightness
+    
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
   };
 
   const getTagLink = (tag) => {
@@ -118,65 +110,76 @@ export default function LiveNews() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6 px-6 pt-6">Live News</h2>
-      <div className="space-y-0 border-t border-black border-l border-r">
-        {NEWS_ARTICLES.map((article, index) => (
-          <div 
-            key={article.id}
-            className={`border-b border-black p-6 hover:bg-gray-50 transition-colors relative ${
-              index === 0 ? 'border-t-0' : ''
-            }`}
-            onMouseEnter={() => setHoveredArticle(article.id)}
-            onMouseLeave={() => setHoveredArticle(null)}
-          >
-            {/* Blue box in upper right corner on hover - for the article itself */}
-            <div className={`absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 z-10 border border-black transition-opacity duration-200 ${
-              hoveredArticle === article.id ? 'opacity-100' : 'opacity-0'
-            }`}></div>
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 mb-2 hover:text-blue-600 transition-colors">
-                  {article.title}
-                </h3>
-                <div className="flex items-center gap-3 text-xs text-gray-500">
-                  <span>{article.timestamp}</span>
-                  <span>•</span>
-                  <span className={`px-2 py-0.5 border ${getImpactColor(article.impact)}`}>
-                    {article.impact}
-                  </span>
-                  <span>•</span>
-                  <span className="text-gray-600">{article.category}</span>
+      <div className="space-y-0 border-t border-black border-r">
+        {NEWS_ARTICLES.map((article, index) => {
+          // Use all tags, dynamically sized
+          const displayTags = article.tags.length > 0 ? article.tags : [];
+          
+          return (
+            <div 
+              key={article.id}
+              className={`border-b border-black ${
+                index === 0 ? 'border-t-0' : ''
+              }`}
+            >
+              {/* Top Section - Title and Image */}
+              <div className="flex" style={{ minHeight: '120px' }}>
+                {/* Left Column - Text Area */}
+                <div className="flex-1 p-4 flex flex-col justify-center">
+                  <h3 className="font-semibold text-gray-900 mb-1">
+                    {article.title}
+                  </h3>
+                  <p className="text-xs text-gray-600">- {article.category}</p>
+                </div>
+                
+                {/* Right Column - Image */}
+                <div className="w-32 flex items-center justify-center border-l border-black bg-gray-100 overflow-hidden">
+                  <img
+                    src={`https://picsum.photos/seed/${article.id}/128/128`}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextElementSibling.style.display = 'flex';
+                    }}
+                  />
+                  <div className="hidden items-center justify-center w-full h-full">
+                    <span className="text-xs text-gray-400">image</span>
+                  </div>
                 </div>
               </div>
+              
+              {/* Bottom Section - Dynamically Sized Segments */}
+              <div className="flex border-b-0">
+                {displayTags.length > 0 ? (
+                  displayTags.map((tag, tagIndex) => {
+                    const TagComponent = tag.label && getTagLink(tag) ? Link : 'div';
+                    const tagProps = tag.label && getTagLink(tag) ? { to: getTagLink(tag) } : {};
+                    const faintColor = getFaintColor(tag.label);
+                    
+                    return (
+                      <TagComponent
+                        key={tagIndex}
+                        {...tagProps}
+                        className={`flex-1 p-3 text-xs text-center ${
+                          tag.label ? 'hover:opacity-80 transition-opacity' : ''
+                        }`}
+                        style={{ 
+                          backgroundColor: faintColor,
+                          flex: displayTags.length > 0 ? `1 1 ${100 / displayTags.length}%` : '1'
+                        }}
+                      >
+                        {tag.label}
+                      </TagComponent>
+                    );
+                  })
+                ) : (
+                  <div className="flex-1 p-3 text-xs text-center"></div>
+                )}
+              </div>
             </div>
-            
-            {/* Tags - Full width row at bottom */}
-            <div className="flex gap-0 mt-4 pt-4 border-t border-gray-200">
-              {article.tags.map((tag, tagIndex) => {
-                const TagComponent = getTagLink(tag) ? Link : 'div';
-                const tagProps = getTagLink(tag) ? { to: getTagLink(tag) } : {};
-                const isLast = tagIndex === article.tags.length - 1;
-                
-                return (
-                  <TagComponent
-                    key={tagIndex}
-                    {...tagProps}
-                    className={`relative group flex-1 border-b border-r border-black px-3 py-2 text-xs font-medium text-center ${getTagColor(tag.type)} hover:opacity-90 transition-opacity ${
-                      isLast ? 'border-r-0' : ''
-                    }`}
-                    onMouseEnter={() => setHoveredTag(`${article.id}-${tagIndex}`)}
-                    onMouseLeave={() => setHoveredTag(null)}
-                  >
-                    {/* Blue box in upper right corner on hover with fade-in */}
-                    <div className={`absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 z-10 border border-black transition-opacity duration-200 ${
-                      hoveredTag === `${article.id}-${tagIndex}` ? 'opacity-100' : 'opacity-0'
-                    }`}></div>
-                    {tag.label}
-                  </TagComponent>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

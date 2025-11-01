@@ -39,7 +39,7 @@ function App() {
           <div className="border-black border-l flex flex-col">
             <StockGrid />
             {/* Live News - Below Stock Movements in same column */}
-            <div className="border-t border-black">
+            <div className="border-l border-black">
               <LiveNews />
             </div>
           </div>

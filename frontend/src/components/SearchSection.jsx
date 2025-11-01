@@ -120,7 +120,7 @@ export default function SearchSection({ onSearch }) {
               Activity
             </h1>
             <p className="text-xl text-gray-300 mb-8">
-              Search for politicians, stocks, and trading activity
+              Search for politicians, stocks, legislation, and trading activity
             </p>
           </div>
           <div className="w-full max-w-2xl">

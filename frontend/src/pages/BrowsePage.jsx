@@ -6,6 +6,7 @@ import { getLegislationDetails } from '../utils/legislationData';
 
 const BrowsePage = () => {
   const [activeTab, setActiveTab] = useState('congressmen'); // 'congressmen' or 'legislation'
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [congressmanFilter, setCongressmanFilter] = useState('all'); // 'all', 'active', 'inactive', 'party', 'chamber'
   const [legislationFilter, setLegislationFilter] = useState('all'); // 'all', 'passed', 'failed', 'pending', 'sector'
   const [sortBy, setSortBy] = useState('name'); // For congressmen: 'name', 'trades', 'networth'. For bills: 'title', 'odds', 'date'
@@ -127,160 +128,210 @@ const BrowsePage = () => {
             </svg>
             Back to Dashboard
           </Link>
-          <h1 className="text-4xl font-bold mb-2">Browse All</h1>
-          <p className="text-gray-600">View and filter all congressmen and legislation</p>
+          
+          {/* Header with Title and Segmented Control */}
+          <div className="flex items-center justify-between">
+            {/* Left Section - Title and Description */}
+            <div>
+              <h1 className="text-4xl font-bold mb-2">Browse All</h1>
+              <p className="text-gray-600">View and filter all congressmen and legislation</p>
+            </div>
+            
+            {/* Right Section - Segmented Control */}
+            <div className="flex border border-black">
+              <button
+                onClick={() => setShowFilterPanel(!showFilterPanel)}
+                className={`px-6 py-3 font-medium border-r border-black transition-colors ${
+                  showFilterPanel
+                    ? 'bg-black text-white'
+                    : 'bg-white text-black hover:bg-gray-50'
+                }`}
+              >
+                filter
+              </button>
+              <button
+                onClick={() => setActiveTab('congressmen')}
+                className={`px-6 py-3 font-medium border-r border-black transition-colors ${
+                  activeTab === 'congressmen'
+                    ? 'bg-black text-white'
+                    : 'bg-white text-black hover:bg-gray-50'
+                }`}
+              >
+                congressmen
+              </button>
+              <button
+                onClick={() => setActiveTab('legislation')}
+                className={`px-6 py-3 font-medium transition-colors ${
+                  activeTab === 'legislation'
+                    ? 'bg-black text-white'
+                    : 'bg-white text-black hover:bg-gray-50'
+                }`}
+              >
+                legislation
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* Filter Panel */}
+      {showFilterPanel && (
+        <div className="container mx-auto px-6 mb-6">
+          <div className="flex border border-black bg-white">
+            {/* Filter Section - Left (wider ~65%) */}
+            <div className="flex items-center border-r border-black" style={{ width: '65%' }}>
+              <div className="flex-1 border-r border-black p-4 flex items-center justify-center">
+                <span className="text-sm font-medium text-gray-900">Filter</span>
+              </div>
+              <div className="flex-1 p-4">
+                {activeTab === 'congressmen' ? (
+                  <select
+                    value={congressmanFilter}
+                    onChange={(e) => setCongressmanFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white focus:outline-none focus:ring-0 text-sm border-0"
+                  >
+                    <option value="all">All</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="Democratic">Democratic</option>
+                    <option value="Republican">Republican</option>
+                    <option value="House">House</option>
+                    <option value="Senate">Senate</option>
+                  </select>
+                ) : (
+                  <select
+                    value={legislationFilter}
+                    onChange={(e) => setLegislationFilter(e.target.value)}
+                    className="w-full px-3 py-2 bg-white focus:outline-none focus:ring-0 text-sm border-0"
+                  >
+                    <option value="all">All</option>
+                    <option value="passed">Passed</option>
+                    <option value="failed">Failed</option>
+                    <option value="pending">Pending</option>
+                    <option value="Technology">Technology</option>
+                    <option value="Financials">Financials</option>
+                    <option value="Energy">Energy</option>
+                    <option value="Healthcare">Healthcare</option>
+                  </select>
+                )}
+              </div>
+            </div>
+
+            {/* Sort By Section - Right (narrower ~35%) */}
+            <div className="flex items-center" style={{ width: '35%' }}>
+              <div className="flex-1 border-r border-black p-4 flex items-center justify-center">
+                <span className="text-sm font-medium text-gray-900">Sort By</span>
+              </div>
+              <div className="flex-1 p-4">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 bg-white focus:outline-none focus:ring-0 text-sm border-0"
+                >
+                  {activeTab === 'congressmen' ? (
+                    <>
+                      <option value="name">Name</option>
+                      <option value="trades">Total Trades</option>
+                      <option value="networth">Net Worth</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="title">Title</option>
+                      <option value="odds">Passing Odds</option>
+                      <option value="date">Date</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="container mx-auto px-6">
-        {/* Tabs */}
-        <div className="mb-6 border-b border-black">
-          <div className="flex gap-4">
-            <button
-              onClick={() => setActiveTab('congressmen')}
-              className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-                activeTab === 'congressmen'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Congressmen ({allCongressmen.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('legislation')}
-              className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-                activeTab === 'legislation'
-                  ? 'border-black text-black'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Legislation ({allLegislation.length})
-            </button>
-          </div>
-        </div>
-
-        {/* Filters and Sort */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Filter:</span>
-            {activeTab === 'congressmen' ? (
-              <select
-                value={congressmanFilter}
-                onChange={(e) => setCongressmanFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-              >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="Democratic">Democratic</option>
-                <option value="Republican">Republican</option>
-                <option value="House">House</option>
-                <option value="Senate">Senate</option>
-              </select>
-            ) : (
-              <select
-                value={legislationFilter}
-                onChange={(e) => setLegislationFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-              >
-                <option value="all">All</option>
-                <option value="passed">Passed</option>
-                <option value="failed">Failed</option>
-                <option value="pending">Pending</option>
-                <option value="Technology">Technology</option>
-                <option value="Financials">Financials</option>
-                <option value="Energy">Energy</option>
-                <option value="Healthcare">Healthcare</option>
-              </select>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-700">Sort by:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
-            >
-              {activeTab === 'congressmen' ? (
-                <>
-                  <option value="name">Name</option>
-                  <option value="trades">Total Trades</option>
-                  <option value="networth">Net Worth</option>
-                </>
-              ) : (
-                <>
-                  <option value="title">Title</option>
-                  <option value="odds">Passing Odds</option>
-                  <option value="date">Date</option>
-                </>
-              )}
-            </select>
-          </div>
-
-          <div className="ml-auto text-sm text-gray-600">
-            Showing {activeTab === 'congressmen' ? filteredCongressmen.length : filteredLegislation.length} results
-          </div>
-        </div>
 
         {/* Congressmen List */}
         {activeTab === 'congressmen' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border-t border-l border-black">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border-t border-l border-r border-black -mx-6">
             {filteredCongressmen.map((congressman, index) => {
+              // Mock legislation sponsored count (based on ID hash for consistency)
+              const legislationCount = (congressman.id.charCodeAt(0) + congressman.id.charCodeAt(congressman.id.length - 1)) % 50 + 10;
               const isLastInRow = (index + 1) % 3 === 0;
-              const isInLastRow = index >= filteredCongressmen.length - (filteredCongressmen.length % 3 || 3);
+              
               return (
-              <Link
-                key={congressman.id}
-                to={`/congressman/${congressman.id}/trading`}
-                className={`bg-white border-b border-r border-black p-6 hover:bg-gray-50 transition-colors relative group ${
-                  isLastInRow ? 'border-r-0' : ''
-                }`}
-              >
-                {/* Blue square on top-right corner on hover */}
-                <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
-                <div className="flex items-start gap-4 mb-4">
-                  <img
-                    src={congressman.image}
-                    alt={congressman.name}
-                    className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                    }}
-                  />
-                  <div className="flex-1">
-                    <h3 className="text-lg font-bold text-gray-900 mb-1">{congressman.name}</h3>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                        congressman.party === 'Democratic'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {congressman.party}
-                      </span>
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                        {congressman.chamber}
-                      </span>
-                      {congressman.isCurrentMember && (
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          Active
-                        </span>
-                      )}
+                <Link
+                  key={congressman.id}
+                  to={`/congressman/${congressman.id}/trading`}
+                  className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
+                    isLastInRow ? 'border-r-0' : ''
+                  }`}
+                >
+                  {/* Blue square on top-right corner on hover */}
+                  <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
+                  
+                  {/* Left Section - Profile Image (1/3 width) */}
+                  <div className="w-1/3 border-r border-black bg-gray-100 flex items-center justify-center overflow-hidden" style={{ minHeight: '200px' }}>
+                    <img
+                      src={congressman.image}
+                      alt={congressman.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.nextElementSibling.style.display = 'flex';
+                      }}
+                    />
+                    <div className="hidden items-center justify-center w-full h-full bg-gray-200">
+                      <span className="text-gray-400 text-sm">Profile Image</span>
                     </div>
-                    <p className="text-xs text-gray-600">{congressman.state}</p>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm border-t border-gray-200 pt-4">
-                  <div>
-                    <div className="text-gray-500 text-xs">Net Worth</div>
-                    <div className="font-semibold text-gray-900">{formatCurrency(congressman.netWorth)}</div>
+                  
+                  {/* Right Section - Details (2/3 width) */}
+                  <div className="w-2/3 flex flex-col">
+                    {/* Top Row - Name (1/3 height) */}
+                    <div className="flex-1 border-b border-black p-4 flex items-center">
+                      <h3 className="text-lg font-semibold text-gray-900">{congressman.name}</h3>
+                    </div>
+                    
+                    {/* Middle Row - Region & Volume Trade (1/3 height) */}
+                    <div className="flex-1 flex border-b border-black">
+                      {/* Left Sub-column - Region */}
+                      <div className="w-1/2 border-r border-black p-4 flex items-center">
+                        <div>
+                          <div className="text-xs text-gray-600 mb-1">Region</div>
+                          <div className="text-sm font-medium text-gray-900">{congressman.state}</div>
+                        </div>
+                      </div>
+                      {/* Right Sub-column - Volume Trade */}
+                      <div className="w-1/2 p-4 flex items-center">
+                        <div>
+                          <div className="text-xs text-gray-600 mb-1">Volume Trade</div>
+                          <div className="text-sm font-medium text-gray-900">{formatCurrency(congressman.tradeVolume)}</div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Bottom Row - Party & Legislation sponsored (1/3 height) */}
+                    <div className="flex-1 flex">
+                      {/* Left Sub-column - Party Affiliation */}
+                      <div className={`w-1/2 border-r border-black p-4 flex items-center ${
+                        congressman.party === 'Democratic' ? 'bg-blue-50' : congressman.party === 'Republican' ? 'bg-red-50' : 'bg-gray-50'
+                      }`}>
+                        <div>
+                          <div className="text-xs text-gray-600 mb-1">Party</div>
+                          <div className="text-sm font-medium text-gray-900">{congressman.party}</div>
+                        </div>
+                      </div>
+                      {/* Right Sub-column - No. of Legislation sponsored */}
+                      <div className="w-1/2 p-4 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="text-xs text-gray-600 mb-1">No. of Legislation</div>
+                          <div className="text-sm font-medium text-gray-900">sponsored</div>
+                          <div className="text-lg font-bold text-gray-900 mt-1">{legislationCount}</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-gray-500 text-xs">Total Trades</div>
-                    <div className="font-semibold text-gray-900">{congressman.totalTrades}</div>
-                  </div>
-                </div>
-              </Link>
+                </Link>
               );
             })}
           </div>
