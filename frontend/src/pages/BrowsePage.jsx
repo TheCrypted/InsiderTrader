@@ -62,35 +62,88 @@ const BrowsePage = () => {
   // Intersection Observer for infinite scroll
   useEffect(() => {
     // Only set up observer if we have basic data loaded and more items to load
-    if (allCongressmenBasic.length === 0 || displayedCount >= allCongressmenBasic.length) {
+    if (allCongressmenBasic.length === 0 || displayedCount >= allCongressmenBasic.length || activeTab !== 'congressmen') {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loadingMore && displayedCount < allCongressmenBasic.length) {
-          console.log('Observer triggered: Loading more congressmen...', { displayedCount, total: allCongressmenBasic.length });
-          loadMoreCongressmen();
-        }
-      },
-      { 
-        threshold: 0.1,
-        rootMargin: '100px' // Start loading 100px before reaching the target
-      }
-    );
+    let observer = null;
+    let timeoutId = null;
 
-    const currentTarget = observerTarget.current;
-    if (currentTarget) {
+    // Use a timeout to ensure the DOM has updated with the ref
+    timeoutId = setTimeout(() => {
+      const currentTarget = observerTarget.current;
+      if (!currentTarget) {
+        console.warn('Observer target not found in DOM');
+        return;
+      }
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry && entry.isIntersecting) {
+            // Check current state before loading
+            setLoadingMore(currentLoading => {
+              if (currentLoading) {
+                return currentLoading; // Already loading, skip
+              }
+              
+              // Use functional update to get latest displayedCount
+              setDisplayedCount(currentDisplayed => {
+                const total = allCongressmenBasic.length;
+                if (currentDisplayed >= total) {
+                  return currentDisplayed; // Already loaded all
+                }
+                
+                console.log('Observer triggered: Loading more congressmen...', { 
+                  displayedCount: currentDisplayed, 
+                  total: total
+                });
+                
+                // Load more asynchronously
+                const nextBatch = allCongressmenBasic.slice(currentDisplayed, currentDisplayed + ITEMS_PER_PAGE);
+                setLoadingMore(true);
+                
+                loadTradesForBatch(nextBatch)
+                  .then(batchWithTrades => {
+                    setLoadedCongressmen(prev => [...prev, ...batchWithTrades]);
+                    setDisplayedCount(prev => prev + ITEMS_PER_PAGE);
+                    setLoadingMore(false);
+                  })
+                  .catch(error => {
+                    console.error('Error loading more congressmen:', error);
+                    setLoadingMore(false);
+                  });
+                
+                return currentDisplayed; // Return unchanged for now, will be updated by promise
+              });
+              
+              return true; // Set loading to true
+            });
+          }
+        },
+        { 
+          threshold: 0.1,
+          rootMargin: '200px' // Start loading 200px before reaching the target for smoother UX
+        }
+      );
+
       observer.observe(currentTarget);
-      console.log('Observer attached to target');
-    }
+      console.log('Observer attached to target', { 
+        displayedCount, 
+        total: allCongressmenBasic.length,
+        hasTarget: !!currentTarget 
+      });
+    }, 100); // Small delay to ensure DOM is ready
 
     return () => {
-      if (currentTarget) {
-        observer.unobserve(currentTarget);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (observer) {
+        observer.disconnect();
       }
     };
-  }, [loadMoreCongressmen, loadingMore, displayedCount, allCongressmenBasic.length]);
+  }, [activeTab, displayedCount, allCongressmenBasic.length]);
 
   // Prepare congressmen data - use loaded congressmen with trades, merge with remaining basic data
   const allCongressmen = useMemo(() => {
@@ -450,16 +503,16 @@ const BrowsePage = () => {
             )}
             
             {/* Observer target - triggers load more when scrolled into view */}
-            {!loadingCongressmen && displayedCount < allCongressmenBasic.length && (
+            {activeTab === 'congressmen' && !loadingCongressmen && displayedCount < allCongressmenBasic.length && (
               <div 
                 ref={observerTarget}
                 className="border-t border-l border-r border-b border-black -mx-6 mt-0 p-8 text-center"
-                style={{ minHeight: '100px' }}
+                style={{ minHeight: '150px', width: '100%' }}
               >
                 {loadingMore ? (
                   <div className="text-gray-500">Loading more congressmen...</div>
                 ) : (
-                  <div className="text-gray-400 text-sm">Scroll to load more</div>
+                  <div className="text-gray-400 text-sm">Scroll to load more ({displayedCount} / {allCongressmenBasic.length} loaded)</div>
                 )}
               </div>
             )}

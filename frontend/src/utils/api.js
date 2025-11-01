@@ -126,16 +126,18 @@ export const getTrades = async (congressmanId) => {
         filed: trade.disclosureDate || trade.tradedAt,
         traded: trade.tradedAt,
         description: `${trade.tradeType} of ${trade.ticker || 'stock'}`,
-        excessReturn: mockTradesByCongressman[congressmanId]?.[index]?.excessReturn || 0, // Keep mock for fields not in API
+        excessReturn: 0, // API doesn't provide excessReturn, set to 0
         amount: trade.tradeAmount || 'N/A',
       }));
     }
-    // Fallback to mock data if API returns empty
-    return mockTradesByCongressman[congressmanId] || mockTrades;
+    // Return empty array if API returns empty (no fallback to mock data)
+    // return mockTradesByCongressman[congressmanId] || mockTrades; // COMMENTED OUT - no mock data fallback
+    return [];
   } catch (error) {
-    console.error('Error fetching trades from API, using mock data:', error);
-    // Fallback to mock data on error
-    return mockTradesByCongressman[congressmanId] || mockTrades;
+    console.error('Error fetching trades from API, returning empty array:', error);
+    // Return empty array on error (no fallback to mock data)
+    // return mockTradesByCongressman[congressmanId] || mockTrades; // COMMENTED OUT - no mock data fallback
+    return [];
   }
 };
 

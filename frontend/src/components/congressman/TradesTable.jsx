@@ -183,8 +183,8 @@ const TradesTable = ({ trades, loading }) => {
           <tbody>
             {paginatedTrades.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-4 text-center text-gray-500 text-xs">
-                  No trades found
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">
+                  No trades in the past year
                 </td>
               </tr>
             ) : (
