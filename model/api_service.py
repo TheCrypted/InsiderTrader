@@ -50,6 +50,10 @@ INDUSTRY_PRIOR_CAP = 0.12  # additive
 # Congress API key
 CONGRESS_API_KEY = os.getenv("CONGRESS_API_KEY", "XcQpTDLhsreEomtnyvWKTGoWjVzMR7vKMwcnvZOg")
 
+POLYMARKET_EVENT_URL = (
+    "https://gamma-api.polymarket.com/events/slug/what-bills-will-be-signed-into-law-by-december-31"
+)
+
 # =========================
 # HTTP helper
 # =========================
@@ -676,3 +680,184 @@ def get_polymarket_bills():
             'count': len(fallback_bills),
             'results': fallback_bills
         })
+
+# ---------------------------
+# 1) Bill parsing helpers
+# ---------------------------
+_BILL_PAT = re.compile(
+    r"""
+    \b(
+        H\s*\.?\s*R\s*\.?            |   # H.R.
+        S\s*\.?                      |   # S.
+        H\s*J\s*\.?\s*RES\s*\.?      |   # HJRES / H.J.RES.
+        S\s*J\s*\.?\s*RES\s*\.?      |   # SJRES / S.J.RES.
+        H\s*RES\s*\.?                |   # HRES / H.RES.
+        S\s*RES\s*\.?                |   # SRES / S.RES.
+        H\s*CON\s*\.?\s*RES\s*\.?    |   # HCONRES / H.CON.RES.
+        S\s*CON\s*\.?\s*RES\s*\.?        # SCONRES / S.CON.RES.
+    )
+    [\s\-\.]*                         # optional separators
+    (\d{1,5})                         # bill number
+    \b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+def _normalize_bill_type(prefix: str) -> str:
+    p = re.sub(r"\s+|\.", "", prefix).upper()
+    mapping = {
+        "HR": "hr",
+        "S": "s",
+        "HJRES": "hjres",
+        "SJRES": "sjres",
+        "HRES": "hres",
+        "SRES": "sres",
+        "HCONRES": "hconres",
+        "SCONRES": "sconres",
+    }
+    return mapping.get(p, p.lower())
+
+def parse_bill_from_text(text: str):
+    """Return (bill_type, bill_number) or (None, None) if not found."""
+    if not text:
+        return None, None
+    m = _BILL_PAT.search(text)
+    if not m:
+        m2 = re.search(
+            r"\b(HR|S|HJRES|SJRES|HRES|SRES|HCONRES|SCONRES)\s*\.?\s*-?\s*(\d{1,5})\b",
+            text, flags=re.IGNORECASE
+        )
+        if not m2:
+            return None, None
+        typ_raw, num = m2.group(1), m2.group(2)
+    else:
+        typ_raw, num = m.group(1), m.group(2)
+    bill_type = _normalize_bill_type(typ_raw)
+    try:
+        bill_number = int(num)
+    except ValueError:
+        return None, None
+    return bill_type, bill_number
+
+# ---------------------------
+# 2) Reusable bill info fetch
+# ---------------------------
+def get_bill_info_data(
+    bill_type: str,
+    bill_number: int,
+    congress: Optional[int] = None,
+):
+    """Same payload shape as /bill_info, but returned as a dict."""
+    congress_num = congress or CONGRESS
+    bill_type_lower = bill_type.lower()
+    bill_url = f"https://api.congress.gov/v3/bill/{congress_num}/{bill_type_lower}/{bill_number}"
+    params = {"api_key": CONGRESS_API_KEY, "format": "json"}
+
+    try:
+        response = _get(bill_url, params=params)
+        data = response.json()
+    except Exception as e:
+        # Surface a compact error payload instead of failing the whole list
+        return {"error": f"Bill not found or fetch failed: {str(e)}"}
+
+    bill = data.get("bill", {}) or {}
+
+    return {
+        "bill_id": f"{bill_type.upper()}.{bill_number}",
+        "title": bill.get("title"),
+        "introduced_date": bill.get("introducedDate"),
+        "policy_area": (bill.get("policyArea") or {}).get("name"),
+        "sponsors": [
+            {
+                "name": s.get("fullName"),
+                "party": s.get("party"),
+                "state": s.get("state"),
+                "bioguide_id": s.get("bioguideId"),
+                "district": s.get("district"),
+            }
+            for s in (bill.get("sponsors") or [])
+        ],
+        "cosponsors_count": (bill.get("cosponsors") or {}).get("count", 0),
+        "latest_action": {
+            "date": (bill.get("latestAction") or {}).get("actionDate"),
+            "text": (bill.get("latestAction") or {}).get("text"),
+        },
+    }
+
+# ---------------------------
+# 3) Polymarket fetch + enrich
+# ---------------------------
+def fetch_bills(congress: Optional[int] = None):
+    """
+    Fetch markets from Polymarket; for each market, parse bill id and enrich
+    with Congress.gov bill info (same as /bill_info).
+    """
+    try:
+        resp = requests.get(POLYMARKET_EVENT_URL, timeout=20)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Upstream fetch error: {e}")
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Polymarket API returned non-200 status")
+
+    try:
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Invalid JSON from upstream: {e}")
+
+    results = []
+    for m in data.get("markets", []):
+        bill_label = m.get("groupItemTitle") or m.get("question") or m.get("title") or "Unknown"
+        # Parse prices
+        try:
+            prices = json.loads(m.get("outcomePrices", "[]"))
+            yes_price = float(prices[0])  # "Yes" probability
+            pct = round(yes_price * 100, 1)
+        except Exception:
+            continue
+
+        bill_type, bill_number = parse_bill_from_text(bill_label)
+        bill_id = f"{bill_type.upper()}.{bill_number}" if bill_type and bill_number else None
+
+        # Enrich with bill_info if we could parse a bill id
+        info = None
+        if bill_type and bill_number:
+            info = get_bill_info_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+
+        results.append({
+            "bill": bill_label,
+            "yes_percent": pct,
+            "bill_type": bill_type,
+            "bill_number": bill_number,
+            "bill_id": bill_id,
+            "info": info,  # dict or None
+        })
+
+    results.sort(key=lambda x: (-x["yes_percent"], x["bill"] or ""))
+    return results
+
+# ---------------------------
+# 4) Endpoints
+# ---------------------------
+@app.get("/bill_info")
+def get_bill_info(
+    bill_type: str = Query(..., description="Bill type (e.g., 'hr', 's', 'hjres')"),
+    bill_number: int = Query(..., description="Bill number", ge=1),
+    congress: Optional[int] = Query(None, description="Congress number (default: 117)")
+):
+    """Single-bill info (unchanged shape)."""
+    info = get_bill_info_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+    # If we returned an error dict, surface 404; else JSON
+    if isinstance(info, dict) and "error" in info:
+        raise HTTPException(status_code=404, detail=info["error"])
+    return JSONResponse(info)
+
+@app.get("/bills")
+def get_bills(
+    congress: Optional[int] = Query(None, description="Congress number override (default: 117)")
+):
+    """
+    List Polymarket markets with Yes% and normalized bill IDs,
+    enriched with Congress.gov bill info in the 'info' field.
+    """
+    return JSONResponse(fetch_bills(congress=congress))

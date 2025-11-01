@@ -144,7 +144,7 @@ public sealed class TradeSyncService : BackgroundService
     
     public static Dictionary<string, List<(int Year, int TotalUSDApprox)>> getCheeky() {
         return new Dictionary<string, List<(int Year, int TotalUSDApprox)>> {
-            {"Nancy Pelosi", new List<(int, int)> {
+            {"P000197", new List<(int, int)> {
                 (2020, 18_500_000),
                 (2021, 24_800_000),
                 (2022, 16_700_000),
@@ -152,7 +152,7 @@ public sealed class TradeSyncService : BackgroundService
                 (2024, 13_400_000),
                 (2025, 12_300_000),
             }},
-            {"Josh Gottheimer", new List<(int, int)> {
+            {"G000583", new List<(int, int)> {
                 (2017, 14_000_000),
                 (2018, 20_000_000),
                 (2019, 30_000_000),
@@ -163,40 +163,40 @@ public sealed class TradeSyncService : BackgroundService
                 (2024, 26_000_000),
                 (2025, 17_000_000),
             }},
-            {"Rick Scott", new List<(int, int)> {
+            {"S001217", new List<(int, int)> {
                 (2023, 18_000_000),
                 (2024, 26_350_000),
                 (2025, 12_000_000),
             }},
-            {"Michael McCaul", new List<(int, int)> {
+            {"M001157", new List<(int, int)> {
                 (2022, 110_000_000),
                 (2023, 95_000_000),
                 (2024, 90_000_000),
                 (2025, 82_000_000),
             }},
-            {"Suzan DelBene", new List<(int, int)> {
+            {"D000617", new List<(int, int)> {
                 (2022, 32_000_000),
                 (2023, 27_000_000),
                 (2024, 22_000_000),
                 (2025, 19_000_000),
             }},
-            {"Dan Meuser", new List<(int, int)> {
+            {"M001204", new List<(int, int)> {
                 (2023, 700_000),
                 (2024, 1_190_000),
                 (2025, 900_000),
             }},
-            {"Marjorie Taylor Greene", new List<(int, int)> {
+            {"G000596", new List<(int, int)> {
                 (2023, 500_000),
                 (2024, 1_330_000),
                 (2025, 800_000),
             }},
-            {"Ro Khanna", new List<(int, int)> {
+            {"K000389", new List<(int, int)> {
                 (2022, 2_100_000),
                 (2023, 1_600_000),
                 (2024, 1_200_000),
                 (2025, 1_000_000),
             }},
-            {"Mark Green", new List<(int, int)> {
+            {"H001102", new List<(int, int)> {
                 (2022, 9_500_000),
                 (2023, 8_100_000),
                 (2024, 10_200_000),
