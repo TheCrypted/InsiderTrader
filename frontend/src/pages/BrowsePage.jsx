@@ -61,18 +61,28 @@ const BrowsePage = () => {
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
+    // Only set up observer if we have basic data loaded and more items to load
+    if (allCongressmenBasic.length === 0 || displayedCount >= allCongressmenBasic.length) {
+      return;
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !loadingMore && displayedCount < allCongressmenBasic.length) {
+          console.log('Observer triggered: Loading more congressmen...', { displayedCount, total: allCongressmenBasic.length });
           loadMoreCongressmen();
         }
       },
-      { threshold: 0.1 }
+      { 
+        threshold: 0.1,
+        rootMargin: '100px' // Start loading 100px before reaching the target
+      }
     );
 
     const currentTarget = observerTarget.current;
     if (currentTarget) {
       observer.observe(currentTarget);
+      console.log('Observer attached to target');
     }
 
     return () => {
@@ -338,101 +348,103 @@ const BrowsePage = () => {
 
         {/* Congressmen List */}
         {activeTab === 'congressmen' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border-t border-l border-r border-black -mx-6">
-            {filteredCongressmen.map((congressman, index) => {
-              // Mock legislation sponsored count (based on ID hash for consistency)
-              const legislationCount = (congressman.id.charCodeAt(0) + congressman.id.charCodeAt(congressman.id.length - 1)) % 50 + 10;
-              const isLastInRow = (index + 1) % 3 === 0;
-              
-              return (
-                <Link
-                  key={congressman.id}
-                  to={`/congressman/${congressman.id}/trading`}
-                  className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
-                    isLastInRow ? 'border-r-0' : ''
-                  }`}
-                >
-                  {/* Blue square on top-right corner on hover */}
-                  <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
-                  
-                  {/* Left Section - Profile Image (1/3 width) */}
-                  <div className="w-1/3 border-r border-black bg-gray-100 flex items-center justify-center overflow-hidden relative" style={{ minHeight: '200px' }}>
-                    {congressman.image ? (
-                      <img
-                        src={congressman.image}
-                        alt={congressman.name}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.nextElementSibling.style.display = 'flex';
-                        }}
-                      />
-                    ) : null}
-                    <div 
-                      className={`items-center justify-center w-full h-full bg-gray-200 ${congressman.image ? 'hidden' : 'flex'}`}
-                      style={{ display: congressman.image ? 'none' : 'flex' }}
-                    >
-                      <span className="text-gray-500 font-bold text-xl">
-                        {congressman.name.split(' ').map(n => n[0]).join('')}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Right Section - Details (2/3 width) */}
-                  <div className="w-2/3 flex flex-col">
-                    {/* Top Row - Name (1/3 height) */}
-                    <div className="flex-1 border-b border-black p-4 flex items-center">
-                      <h3 className="text-lg font-semibold text-gray-900">{congressman.name}</h3>
-                    </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border-t border-l border-r border-black -mx-6">
+              {filteredCongressmen.map((congressman, index) => {
+                // Mock legislation sponsored count (based on ID hash for consistency)
+                const legislationCount = (congressman.id.charCodeAt(0) + congressman.id.charCodeAt(congressman.id.length - 1)) % 50 + 10;
+                const isLastInRow = (index + 1) % 3 === 0;
+                
+                return (
+                  <Link
+                    key={congressman.id}
+                    to={`/congressman/${congressman.id}/trading`}
+                    className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
+                      isLastInRow ? 'border-r-0' : ''
+                    }`}
+                  >
+                    {/* Blue square on top-right corner on hover */}
+                    <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
                     
-                    {/* Middle Row - Region & Volume Trade (1/3 height) */}
-                    <div className="flex-1 flex border-b border-black">
-                      {/* Left Sub-column - Region */}
-                      <div className="w-1/2 border-r border-black p-4 flex items-center">
-                        <div>
-                          <div className="text-xs text-gray-600 mb-1">Region</div>
-                          <div className="text-sm font-medium text-gray-900">{congressman.state}</div>
-                        </div>
-                      </div>
-                      {/* Right Sub-column - Volume Trade */}
-                      <div className="w-1/2 p-4 flex items-center">
-                        <div>
-                          <div className="text-xs text-gray-600 mb-1">Volume Trade</div>
-                          <div className="text-sm font-medium text-gray-900">{formatCurrency(congressman.tradeVolume || 0)}</div>
-                        </div>
+                    {/* Left Section - Profile Image (1/3 width) */}
+                    <div className="w-1/3 border-r border-black bg-gray-100 flex items-center justify-center overflow-hidden relative" style={{ minHeight: '200px' }}>
+                      {congressman.image ? (
+                        <img
+                          src={congressman.image}
+                          alt={congressman.name}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className={`items-center justify-center w-full h-full bg-gray-200 ${congressman.image ? 'hidden' : 'flex'}`}
+                        style={{ display: congressman.image ? 'none' : 'flex' }}
+                      >
+                        <span className="text-gray-500 font-bold text-xl">
+                          {congressman.name.split(' ').map(n => n[0]).join('')}
+                        </span>
                       </div>
                     </div>
                     
-                    {/* Bottom Row - Party & Legislation sponsored (1/3 height) */}
-                    <div className="flex-1 flex">
-                      {/* Left Sub-column - Party Affiliation */}
-                      <div className={`w-1/2 border-r border-black p-4 flex items-center ${
-                        congressman.party === 'Democratic' ? 'bg-blue-50' : congressman.party === 'Republican' ? 'bg-red-50' : 'bg-gray-50'
-                      }`}>
-                        <div>
-                          <div className="text-xs text-gray-600 mb-1">Party</div>
-                          <div className="text-sm font-medium text-gray-900">{congressman.party}</div>
+                    {/* Right Section - Details (2/3 width) */}
+                    <div className="w-2/3 flex flex-col">
+                      {/* Top Row - Name (1/3 height) */}
+                      <div className="flex-1 border-b border-black p-4 flex items-center">
+                        <h3 className="text-lg font-semibold text-gray-900">{congressman.name}</h3>
+                      </div>
+                      
+                      {/* Middle Row - Region & Volume Trade (1/3 height) */}
+                      <div className="flex-1 flex border-b border-black">
+                        {/* Left Sub-column - Region */}
+                        <div className="w-1/2 border-r border-black p-4 flex items-center">
+                          <div>
+                            <div className="text-xs text-gray-600 mb-1">Region</div>
+                            <div className="text-sm font-medium text-gray-900">{congressman.state}</div>
+                          </div>
+                        </div>
+                        {/* Right Sub-column - Volume Trade */}
+                        <div className="w-1/2 p-4 flex items-center">
+                          <div>
+                            <div className="text-xs text-gray-600 mb-1">Volume Trade</div>
+                            <div className="text-sm font-medium text-gray-900">{formatCurrency(congressman.tradeVolume || 0)}</div>
+                          </div>
                         </div>
                       </div>
-                      {/* Right Sub-column - No. of Legislation sponsored */}
-                      <div className="w-1/2 p-4 flex items-center justify-center">
-                        <div className="text-center">
-                          <div className="text-xs text-gray-600 mb-1">No. of Legislation</div>
-                          <div className="text-sm font-medium text-gray-900">sponsored</div>
-                          <div className="text-lg font-bold text-gray-900 mt-1">{legislationCount}</div>
+                      
+                      {/* Bottom Row - Party & Legislation sponsored (1/3 height) */}
+                      <div className="flex-1 flex">
+                        {/* Left Sub-column - Party Affiliation */}
+                        <div className={`w-1/2 border-r border-black p-4 flex items-center ${
+                          congressman.party === 'Democratic' ? 'bg-blue-50' : congressman.party === 'Republican' ? 'bg-red-50' : 'bg-gray-50'
+                        }`}>
+                          <div>
+                            <div className="text-xs text-gray-600 mb-1">Party</div>
+                            <div className="text-sm font-medium text-gray-900">{congressman.party}</div>
+                          </div>
+                        </div>
+                        {/* Right Sub-column - No. of Legislation sponsored */}
+                        <div className="w-1/2 p-4 flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="text-xs text-gray-600 mb-1">No. of Legislation</div>
+                            <div className="text-sm font-medium text-gray-900">sponsored</div>
+                            <div className="text-lg font-bold text-gray-900 mt-1">{legislationCount}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </Link>
-              );
-            })}
+                  </Link>
+                );
+              })}
+            </div>
             
-            {/* Loading indicator and observer target for infinite scroll */}
+            {/* Loading indicator and observer target for infinite scroll - outside grid */}
             {loadingCongressmen && (
-              <div className="col-span-full border-b border-r border-black p-8 text-center">
+              <div className="border-t border-l border-r border-b border-black -mx-6 mt-0 p-8 text-center">
                 <div className="text-gray-500">Loading congressmen...</div>
               </div>
             )}
@@ -441,7 +453,8 @@ const BrowsePage = () => {
             {!loadingCongressmen && displayedCount < allCongressmenBasic.length && (
               <div 
                 ref={observerTarget}
-                className="col-span-full border-b border-r border-black p-8 text-center"
+                className="border-t border-l border-r border-b border-black -mx-6 mt-0 p-8 text-center"
+                style={{ minHeight: '100px' }}
               >
                 {loadingMore ? (
                   <div className="text-gray-500">Loading more congressmen...</div>
@@ -453,11 +466,11 @@ const BrowsePage = () => {
             
             {/* End of list indicator */}
             {!loadingCongressmen && displayedCount >= allCongressmenBasic.length && allCongressmenBasic.length > 0 && (
-              <div className="col-span-full border-b border-r border-black p-8 text-center">
+              <div className="border-t border-l border-r border-b border-black -mx-6 mt-0 p-8 text-center">
                 <div className="text-gray-400 text-sm">All {allCongressmenBasic.length} congressmen loaded</div>
               </div>
             )}
-          </div>
+          </>
         )}
 
         {/* Legislation List */}
