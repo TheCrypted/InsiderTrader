@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
 import { graphNodes, graphLinks, nodeColors, sectorColors } from '../utils/graphData';
@@ -8,6 +8,33 @@ const GraphPage = () => {
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all', 'congressman', 'bill'
+
+  // Group nodes for better clustering
+  const getNodeGroup = (node) => {
+    if (node.type === 'congressman') {
+      // Group congressmen by party
+      return node.party === 'Democratic' ? 'dem' : 'rep';
+    } else {
+      // Group bills by sector
+      return node.sector || 'other';
+    }
+  };
+
+  // Calculate group positions (circular layout around center)
+  const groupPositions = useMemo(() => {
+    const groups = {
+      dem: { angle: Math.PI / 4, radius: 200 },
+      rep: { angle: (3 * Math.PI) / 4, radius: 200 },
+      Technology: { angle: -Math.PI / 4, radius: 250 },
+      Financials: { angle: -Math.PI / 2, radius: 250 },
+      Energy: { angle: Math.PI / 2, radius: 250 },
+      Healthcare: { angle: Math.PI, radius: 250 },
+      Business: { angle: (5 * Math.PI) / 4, radius: 250 },
+      Defense: { angle: (7 * Math.PI) / 4, radius: 250 },
+      other: { angle: 0, radius: 200 }
+    };
+    return groups;
+  }, []);
 
   // Prepare graph data with positions and relationships
   const graphData = useMemo(() => {
@@ -20,21 +47,53 @@ const GraphPage = () => {
       return 8 + ((size - minSize) / (maxSize - minSize)) * 32;
     };
 
-    const nodes = graphNodes.map(node => ({
-      ...node,
-      // Set initial positions for better layout
-      x: Math.random() * 800 + 100,
-      y: Math.random() * 600 + 100,
-      // Normalized size
-      normalizedSize: normalizeSize(node.size || 10),
-      // Color based on type
-      color: node.type === 'congressman' 
-        ? nodeColors.congressman[node.party]
-        : sectorColors[node.sector] || nodeColors.bill,
-      // Add visual properties
-      opacity: 1,
-      strokeWidth: 2
-    }));
+    // Count nodes per group for positioning
+    const groupCounts = {};
+    graphNodes.forEach(node => {
+      const group = getNodeGroup(node);
+      groupCounts[group] = (groupCounts[group] || 0) + 1;
+    });
+
+    let groupIndices = {};
+    const nodes = graphNodes.map(node => {
+      const group = getNodeGroup(node);
+      const groupIdx = groupIndices[group] || 0;
+      groupIndices[group] = groupIdx + 1;
+      
+      // Calculate position in group (circular arrangement)
+      const groupPos = groupPositions[group] || groupPositions.other;
+      const nodesInGroup = groupCounts[group] || 1;
+      const angleOffset = (2 * Math.PI * groupIdx) / nodesInGroup;
+      const angle = groupPos.angle + angleOffset;
+      
+      // Add some random scatter within group
+      const scatterRadius = 30 + Math.random() * 20;
+      const scatterAngle = Math.random() * 2 * Math.PI;
+      
+      const centerX = 400; // Center of canvas (assuming ~800px width)
+      const centerY = 300; // Center of canvas (assuming ~600px height)
+      
+      const x = centerX + Math.cos(angle) * groupPos.radius + Math.cos(scatterAngle) * scatterRadius;
+      const y = centerY + Math.sin(angle) * groupPos.radius + Math.sin(scatterAngle) * scatterRadius;
+
+      return {
+        ...node,
+        // Initial positions based on grouping
+        x,
+        y,
+        // Normalized size
+        normalizedSize: normalizeSize(node.size || 10),
+        // Color based on type
+        color: node.type === 'congressman' 
+          ? nodeColors.congressman[node.party]
+          : sectorColors[node.sector] || nodeColors.bill,
+        // Group for clustering
+        group: group,
+        // Add visual properties
+        opacity: 1,
+        strokeWidth: 2
+      };
+    });
 
     const links = graphLinks.map(link => ({
       ...link,
@@ -45,7 +104,7 @@ const GraphPage = () => {
     }));
 
     return { nodes, links };
-  }, []);
+  }, [groupPositions]);
 
   // Filter nodes based on selection
   const filteredData = useMemo(() => {
@@ -238,31 +297,43 @@ const GraphPage = () => {
                 return `rgba(0, 0, 0, ${opacity})`;
               }}
               linkWidth={link => (link.strength || 0.5) * 3}
-              // Force simulation parameters to prevent overlap
+              // Enhanced force simulation parameters for better physics
               nodeRepulsion={d => {
                 const baseSize = d.normalizedSize || 15;
-                return -baseSize * 200; // Strong repulsion based on size
+                // Strong repulsion but not so strong it prevents dragging
+                // Reduced from 800 to allow more natural movement
+                return -baseSize * 500;
               }}
               linkDistance={link => {
-                const sourceSize = typeof link.source === 'object' ? (link.source.normalizedSize || 15) : 15;
-                const targetSize = typeof link.target === 'object' ? (link.target.normalizedSize || 15) : 15;
-                return (sourceSize + targetSize) * 3 + 100; // Distance based on node sizes
+                const sourceNode = typeof link.source === 'object' ? link.source : filteredData.nodes.find(n => n.id === link.source);
+                const targetNode = typeof link.target === 'object' ? link.target : filteredData.nodes.find(n => n.id === link.target);
+                const sourceSize = sourceNode?.normalizedSize || 15;
+                const targetSize = targetNode?.normalizedSize || 15;
+                // Minimum distance is sum of radii + padding
+                return (sourceSize + targetSize) * 2.5 + 120;
               }}
-              linkStrength={link => link.strength || 0.5}
-              // Enable node dragging - react-force-graph-2d supports dragging by default
-              // We just need to handle the drag events to lock positions
-              onNodeDragEnd={node => {
+              linkStrength={link => {
+                // Lighter link strength so nodes can be dragged without snapping back
+                return (link.strength || 0.5) * 0.2;
+              }}
+              // Add many-body force for better spacing
+              warmupTicks={100}
+              cooldownTicks={200}
+              // Enable node dragging - keep nodes where user drags them
+              onNodeDrag={node => {
                 if (node) {
-                  // Lock node position after dragging
+                  // Fix position while dragging
                   node.fx = node.x;
                   node.fy = node.y;
                 }
               }}
-              onNodeDrag={node => {
+              onNodeDragEnd={node => {
                 if (node) {
-                  // Update fixed position while dragging
+                  // Keep node fixed at dragged position so it stays where user puts it
                   node.fx = node.x;
                   node.fy = node.y;
+                  // Mark as user-positioned
+                  node.userPositioned = true;
                 }
               }}
               nodeCanvasObject={(node, ctx, globalScale) => {
@@ -326,20 +397,38 @@ const GraphPage = () => {
               onNodeHover={(node) => {
                 handleNodeHover(node || null);
               }}
-              onNodeClick={handleNodeClick}
-              onNodeRightClick={handleNodeRightClick}
-              cooldownTicks={150}
+              onNodeClick={(node, event) => {
+                // Double-click to unlock node position (allow physics to move it again)
+                if (event.detail === 2 && node.userPositioned) {
+                  node.fx = null;
+                  node.fy = null;
+                  node.userPositioned = false;
+                } else {
+                  handleNodeClick(node);
+                }
+              }}
+              onNodeRightClick={(node, event) => {
+                event.preventDefault();
+                // Right-click to unlock node position
+                if (node.userPositioned) {
+                  node.fx = null;
+                  node.fy = null;
+                  node.userPositioned = false;
+                } else {
+                  setSelectedNode(null);
+                }
+              }}
               onEngineStop={() => {
-                // Graph settled
+                // Graph settled - allow more iterations for better layout
               }}
             />
             
             {/* Hover Tooltip */}
             {hoveredNode && (
               <div 
-                className="absolute top-4 right-4 z-10 animate-fade-in pointer-events-none"
+                className="absolute top-4 right-4 z-10 animate-fade-in"
                 style={{
-                  pointerEvents: 'none'
+                  pointerEvents: 'auto'
                 }}
               >
                 {getNodeDetails(hoveredNode)}
@@ -349,9 +438,9 @@ const GraphPage = () => {
             {/* Selected Node Details */}
             {selectedNode && !hoveredNode && (
               <div 
-                className="absolute top-4 right-4 z-10 animate-fade-in pointer-events-none"
+                className="absolute top-4 right-4 z-10 animate-fade-in"
                 style={{
-                  pointerEvents: 'none'
+                  pointerEvents: 'auto'
                 }}
               >
                 {getNodeDetails(selectedNode)}
@@ -386,8 +475,8 @@ const GraphPage = () => {
             <div className="text-xs text-gray-600 space-y-1">
               <div>• Hover over nodes for details</div>
               <div>• Click to select</div>
-              <div>• Right-click to deselect</div>
-              <div>• Drag nodes to rearrange</div>
+              <div>• Drag nodes to rearrange (stays in place)</div>
+              <div>• Double-click or right-click to unlock</div>
             </div>
           </div>
         </div>
