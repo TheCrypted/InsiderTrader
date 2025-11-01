@@ -16,6 +16,8 @@ from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize as sk_normalize
 
+from typing import Dict, Any, Set
+
 import json
 
 # =========================
