@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { graphCongressmen, graphBills } from '../utils/graphData';
 import { getLegislationDetails } from '../utils/legislationData';
+import { getAllRepresentatives } from '../utils/api';
 
 const BrowsePage = () => {
   const [activeTab, setActiveTab] = useState('congressmen'); // 'congressmen' or 'legislation'
@@ -10,16 +11,40 @@ const BrowsePage = () => {
   const [congressmanFilter, setCongressmanFilter] = useState('all'); // 'all', 'active', 'inactive', 'party', 'chamber'
   const [legislationFilter, setLegislationFilter] = useState('all'); // 'all', 'passed', 'failed', 'pending', 'sector'
   const [sortBy, setSortBy] = useState('name'); // For congressmen: 'name', 'trades', 'networth'. For bills: 'title', 'odds', 'date'
+  const [apiCongressmen, setApiCongressmen] = useState([]);
+  const [loadingCongressmen, setLoadingCongressmen] = useState(true);
 
-  // Prepare congressmen data with all from graphData
+  // Fetch all representatives from API
+  useEffect(() => {
+    const fetchCongressmen = async () => {
+      try {
+        setLoadingCongressmen(true);
+        const reps = await getAllRepresentatives();
+        setApiCongressmen(reps);
+      } catch (error) {
+        console.error('Error fetching congressmen:', error);
+      } finally {
+        setLoadingCongressmen(false);
+      }
+    };
+    fetchCongressmen();
+  }, []);
+
+  // Prepare congressmen data - prioritize API data, fallback to graphData
   const allCongressmen = useMemo(() => {
-    return graphCongressmen.map(congressman => ({
+    // If we have API data, use it; otherwise use graphData
+    const congressmenList = apiCongressmen.length > 0 ? apiCongressmen : graphCongressmen;
+    
+    return congressmenList.map(congressman => ({
       ...congressman,
+      // Add mock data fields for display (netWorth, totalTrades) if not present
+      netWorth: congressman.netWorth || (graphCongressmen.find(g => g.id === congressman.id)?.netWorth || 0),
+      totalTrades: congressman.totalTrades || (graphCongressmen.find(g => g.id === congressman.id)?.totalTrades || 0),
       isCurrentMember: congressman.isCurrentMember !== false, // Default to true if not specified
       // Add inactive congressmen (mock some as inactive)
       ...(congressman.id === 'M000303' || congressman.id === 'L000174' ? { isCurrentMember: false } : {})
     }));
-  }, []);
+  }, [apiCongressmen]);
 
   // Prepare legislation data with odds
   const allLegislation = useMemo(() => {
@@ -270,18 +295,27 @@ const BrowsePage = () => {
                   <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
                   
                   {/* Left Section - Profile Image (1/3 width) */}
-                  <div className="w-1/3 border-r border-black bg-gray-100 flex items-center justify-center overflow-hidden" style={{ minHeight: '200px' }}>
-                    <img
-                      src={congressman.image}
-                      alt={congressman.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        e.target.nextElementSibling.style.display = 'flex';
-                      }}
-                    />
-                    <div className="hidden items-center justify-center w-full h-full bg-gray-200">
-                      <span className="text-gray-400 text-sm">Profile Image</span>
+                  <div className="w-1/3 border-r border-black bg-gray-100 flex items-center justify-center overflow-hidden relative" style={{ minHeight: '200px' }}>
+                    {congressman.image ? (
+                      <img
+                        src={congressman.image}
+                        alt={congressman.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextElementSibling.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    <div 
+                      className={`items-center justify-center w-full h-full bg-gray-200 ${congressman.image ? 'hidden' : 'flex'}`}
+                      style={{ display: congressman.image ? 'none' : 'flex' }}
+                    >
+                      <span className="text-gray-500 font-bold text-xl">
+                        {congressman.name.split(' ').map(n => n[0]).join('')}
+                      </span>
                     </div>
                   </div>
                   
@@ -305,7 +339,7 @@ const BrowsePage = () => {
                       <div className="w-1/2 p-4 flex items-center">
                         <div>
                           <div className="text-xs text-gray-600 mb-1">Volume Trade</div>
-                          <div className="text-sm font-medium text-gray-900">{formatCurrency(congressman.tradeVolume)}</div>
+                          <div className="text-sm font-medium text-gray-900">{formatCurrency(congressman.tradeVolume || 0)}</div>
                         </div>
                       </div>
                     </div>
