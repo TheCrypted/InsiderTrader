@@ -293,10 +293,24 @@ app.MapGet("/senate-lobbying", async (HttpContext context, string symbol, string
 app.MapGet("/trades-by/{bioGuideId}",
     async (string bioGuideId, AppDbContext db) => await db.Trades.Where(t => t.bioGuideId == bioGuideId).ToListAsync());
 
-app.MapGet("/all-representatives", async (AppDbContext db) =>
-    await db.Politicians.ToListAsync());
-
 var cheekyPoliticians = TradeSyncService.getCheeky();
+
+app.MapGet("/all-representatives", async (AppDbContext db) => {
+    var cheekyIds = cheekyPoliticians.Keys.ToArray();
+    return await db.Politicians
+        .GroupJoin(db.Trades,
+            p => p.bioGuideId,
+            t => t.bioGuideId,
+            (p, trades) => new
+            {
+                Politician = p,
+                TradeCount = trades.Count()
+            })
+        .OrderByDescending(x => cheekyIds.Contains(x.Politician.bioGuideId)) // cheeky first
+        .ThenByDescending(x => x.TradeCount)                                  // then trade count
+        .Select(x => x.Politician)
+        .ToListAsync();
+});
 
 app.MapGet("/trading-volume-by-year/{bioGuideId}", async (string bioGuideId, AppDbContext db)=> {
     if (cheekyPoliticians.ContainsKey(bioGuideId)) {
