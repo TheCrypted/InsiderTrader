@@ -341,16 +341,20 @@ const LegislationBetPage = () => {
                 });
                 setHasPolymarketData(existsInPolymarket);
                 // Price history will be fetched separately via useEffect
-                setLegislation({
+                setLegislation(prev => ({
                   ...fullData,
                   priceHistory: [], // Will be fetched from Polymarket if available
-                });
+                  // Preserve affectedStocks if they were already loaded
+                  affectedStocks: prev?.affectedStocks || fullData?.affectedStocks || [],
+                }));
               }).catch(() => {
                 setHasPolymarketData(false);
-                setLegislation({
+                setLegislation(prev => ({
                   ...fullData,
                   priceHistory: [],
-                });
+                  // Preserve affectedStocks if they were already loaded
+                  affectedStocks: prev?.affectedStocks || fullData?.affectedStocks || [],
+                }));
               });
             }
           }).catch(() => {
@@ -461,17 +465,21 @@ const LegislationBetPage = () => {
               noPrice: noPrice,
               showOdds: showOdds,
               volume24h: polymarketOdds?.volume ? parseInt(polymarketOdds.volume) : prev.volume24h,
+              // Preserve affectedStocks if they were already loaded
+              affectedStocks: prev?.affectedStocks || [],
             }));
           }).catch(err => {
             console.error('Error fetching additional data:', err);
           });
           
-          setLegislation({
+          setLegislation(prev => ({
             ...defaultLegislation,
             showOdds: false, // Will update when we get bill info
             yesPrice: null,
             noPrice: null,
-          });
+            // Preserve affectedStocks if they were already loaded
+            affectedStocks: prev?.affectedStocks || defaultLegislation?.affectedStocks || [],
+          }));
           setLoading(false);
           return;
         }
@@ -729,7 +737,16 @@ const LegislationBetPage = () => {
 
   // Fetch stocks from /match API in background after legislation is loaded (useEffect to avoid React warning)
   useEffect(() => {
-    if (!billId) return;
+    if (!billId || !legislation || legislation.id !== billId) {
+      // Wait for legislation to be set before fetching stocks
+      return;
+    }
+    
+    // Don't refetch if we already have stocks (avoid overwriting on re-renders)
+    if (legislation.affectedStocks && legislation.affectedStocks.length > 0) {
+      console.log(`Stocks already loaded for ${billId}, skipping fetch`);
+      return;
+    }
     
     // Always fetch from /match API - no mock data
     console.log(`Fetching related stocks for ${billId} from /match API (timeout: 15s)...`);
@@ -746,6 +763,11 @@ const LegislationBetPage = () => {
           setLegislation(prev => {
             // Only update if we still have legislation and the billId matches
             if (!prev || prev.id !== billId) return prev;
+            // Preserve existing stocks if they exist (don't overwrite)
+            if (prev.affectedStocks && prev.affectedStocks.length > 0) {
+              console.log(`Preserving existing ${prev.affectedStocks.length} stocks for ${billId}`);
+              return prev;
+            }
             return {
               ...prev,
               affectedStocks: relatedStocks, // Use API data only
@@ -753,9 +775,13 @@ const LegislationBetPage = () => {
           });
         } else {
           console.log(`No related stocks found for bill ${billId} from /match API`);
-          // Set to empty array - will show N/A, but only if billId still matches
+          // Only set to empty array if we don't have stocks already
           setLegislation(prev => {
             if (!prev || prev.id !== billId) return prev;
+            // Preserve existing stocks if they exist
+            if (prev.affectedStocks && prev.affectedStocks.length > 0) {
+              return prev;
+            }
             return {
               ...prev,
               affectedStocks: [],
@@ -767,9 +793,14 @@ const LegislationBetPage = () => {
       .catch(error => {
         if (cancelled) return;
         console.warn(`✗ Error fetching stocks from /match API for bill ${billId}:`, error.message || error);
-        // On error, set to empty array - will show N/A, but only if billId still matches
+        // On error, only set to empty array if we don't have stocks already
         setLegislation(prev => {
           if (!prev || prev.id !== billId) return prev;
+          // Preserve existing stocks if they exist
+          if (prev.affectedStocks && prev.affectedStocks.length > 0) {
+            console.log(`Preserving existing stocks despite fetch error`);
+            return prev;
+          }
           return {
             ...prev,
             affectedStocks: [],
@@ -782,7 +813,7 @@ const LegislationBetPage = () => {
       cancelled = true;
       // Don't set loading to false on cleanup to avoid flicker
     };
-  }, [billId]); // Only re-fetch if billId changes
+  }, [billId, legislation?.id]); // Re-fetch if billId changes OR when legislation is first set
 
   // Fetch sponsor congressman data if we have bioguide_id
   const [sponsorCongressman, setSponsorCongressman] = useState(null);
