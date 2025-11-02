@@ -122,9 +122,8 @@ const BrowsePage = () => {
         setPolymarketOdds(oddsMap);
         
         // Step 2: Fetch additional bills from /recent_bills endpoint
-        // Note: API only returns max 10 bills regardless of limit parameter
         console.log('Step 2: Fetching bills from /recent_bills endpoint...');
-        const recentBillsResponse = await getRecentBills(10, 0);
+        const recentBillsResponse = await getRecentBills(20, 0); // Fetch 20 bills initially
         
         // Normalize bill IDs for comparison
         const normalizeBillId = (id) => {
@@ -340,13 +339,13 @@ const BrowsePage = () => {
       polymarketBillsCount,
     });
     
-    // If we've displayed all loaded bills and there might be more available from API
-    if (displayedBillsCount >= recentBills.length && (totalAvailableFromAPI === 0 || currentOffset < totalAvailableFromAPI)) {
-      setLoadingMoreBills(true);
-      try {
-        // Note: API only returns max 10 bills regardless of limit parameter
-        console.log(`Fetching more bills from API: offset=${currentOffset}, limit=10 (API max), totalAvailable=${totalAvailableFromAPI}`);
-        const response = await getRecentBills(10, currentOffset);
+      // If we've displayed all loaded bills and there might be more available from API
+      if (displayedBillsCount >= recentBills.length && (totalAvailableFromAPI === 0 || currentOffset < totalAvailableFromAPI)) {
+        setLoadingMoreBills(true);
+        try {
+          // Fetch more bills (20 at a time for better performance)
+          console.log(`Fetching more bills from API: offset=${currentOffset}, limit=20, totalAvailable=${totalAvailableFromAPI}`);
+          const response = await getRecentBills(20, currentOffset);
         
         console.log(`API response: ${response.bills.length} bills, totalCount=${response.totalCount}`);
         
@@ -397,14 +396,23 @@ const BrowsePage = () => {
             return updated;
           });
           
-          // Note: API only returns 10 bills max, so totalCount might not reflect all available bills
           // Update total count if we got new info from API
-          if (response.totalCount > 0 && response.totalCount > totalBillsCount) {
-            setTotalBillsCount(response.totalCount + polymarketBillsCount);
+          // If totalCount is 0 or small, it might be an estimate - use it if it's larger than current
+          if (response.totalCount > 0) {
+            // If the API returned fewer bills than requested, we might have reached the end
+            if (response.bills.length < 20 && response.totalCount <= currentOffset + response.bills.length) {
+              // We've reached the end - update total to actual count
+              setTotalBillsCount(currentOffset + response.bills.length + polymarketBillsCount);
+            } else if (response.totalCount > totalBillsCount - polymarketBillsCount) {
+              // API has a better estimate of total count
+              setTotalBillsCount(response.totalCount + polymarketBillsCount);
+            }
+          } else if (response.bills.length < 20) {
+            // If we got fewer bills than requested and no totalCount, we've likely reached the end
+            setTotalBillsCount(currentOffset + response.bills.length + polymarketBillsCount);
           }
         } else {
           // No more bills to load - might have reached the end
-          // Note: Since API only returns 10 bills, we may have exhausted available bills
           console.log('No new bills loaded from API (may have reached the end)');
           if (response.totalCount > 0 && currentOffset >= response.totalCount) {
             console.log('Reached the end of available bills');
@@ -614,10 +622,28 @@ const BrowsePage = () => {
                         0;
       
       // Get date - prioritize latest_action.date (most reliable for /recent_bills), then introduced_date, then graphBill
-      let date = bill.latest_action?.date || 
-                 bill.introduced_date || 
-                 graphBill?.date || 
-                 new Date().toISOString().split('T')[0];
+      // Ensure date is in valid format
+      let dateRaw = bill.latest_action?.date || 
+                    bill.introduced_date || 
+                    graphBill?.date;
+      
+      // Validate and format date
+      let date = null;
+      if (dateRaw) {
+        try {
+          const dateObj = new Date(dateRaw);
+          if (!isNaN(dateObj.getTime())) {
+            date = dateObj.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+          }
+        } catch (e) {
+          console.warn(`Invalid date for bill ${billId}: ${dateRaw}`);
+        }
+      }
+      
+      // Fallback to today's date if no valid date found
+      if (!date) {
+        date = new Date().toISOString().split('T')[0];
+      }
       
       // Get Polymarket odds if available
       // Try multiple formats for matching
@@ -724,7 +750,9 @@ const BrowsePage = () => {
         isPassed: isPassed,
         isFailed: isFailed,
         sector: sector,
-        date: date,
+        date: bill.latest_action?.date || date || bill.introduced_date, // Prioritize latest_action.date
+        latest_action: bill.latest_action, // Store for direct access
+        introduced_date: bill.introduced_date, // Store for fallback
         cosponsors: cosponsors,
         status: status,
         committees: graphBill?.committees || baseDetails?.committees || [],
@@ -777,6 +805,46 @@ const BrowsePage = () => {
     return filtered;
   }, [allCongressmen, congressmanFilter, sortBy]);
 
+  // Helper function to get status color
+  const getStatusColor = (status) => {
+    if (!status) return { bg: 'bg-gray-50', text: 'text-gray-700' };
+    
+    const statusLower = status.toLowerCase();
+    
+    // Passed statuses - green
+    if (statusLower.includes('passed') || statusLower.includes('became law') || statusLower.includes('to president')) {
+      return { bg: 'bg-green-50', text: 'text-green-700' };
+    }
+    
+    // Failed statuses - red
+    if (statusLower.includes('failed') || statusLower.includes('vetoed')) {
+      return { bg: 'bg-red-50', text: 'text-red-700' };
+    }
+    
+    // On Calendar - yellow/orange
+    if (statusLower.includes('calendar')) {
+      return { bg: 'bg-yellow-50', text: 'text-yellow-700' };
+    }
+    
+    // In Committee - blue
+    if (statusLower.includes('committee') || statusLower.includes('reported')) {
+      return { bg: 'bg-blue-50', text: 'text-blue-700' };
+    }
+    
+    // In Senate - purple
+    if (statusLower.includes('senate') && !statusLower.includes('passed')) {
+      return { bg: 'bg-purple-50', text: 'text-purple-700' };
+    }
+    
+    // Introduced - cyan
+    if (statusLower.includes('introduced')) {
+      return { bg: 'bg-cyan-50', text: 'text-cyan-700' };
+    }
+    
+    // Default - gray for pending and other statuses
+    return { bg: 'bg-gray-50', text: 'text-gray-700' };
+  };
+
   // Filter and sort legislation
   const filteredLegislation = useMemo(() => {
     let filtered = [...displayedLegislation];
@@ -787,6 +855,14 @@ const BrowsePage = () => {
       filtered = filtered.filter(b => b.isFailed);
     } else if (legislationFilter === 'pending') {
       filtered = filtered.filter(b => !b.isPassed && !b.isFailed);
+    } else if (legislationFilter === 'on_calendar') {
+      filtered = filtered.filter(b => b.status && b.status.toLowerCase().includes('calendar'));
+    } else if (legislationFilter === 'in_committee') {
+      filtered = filtered.filter(b => b.status && (b.status.toLowerCase().includes('committee') || b.status.toLowerCase().includes('reported')));
+    } else if (legislationFilter === 'passed_senate') {
+      filtered = filtered.filter(b => b.status && b.status.toLowerCase().includes('passed senate'));
+    } else if (legislationFilter === 'passed_house') {
+      filtered = filtered.filter(b => b.status && b.status.toLowerCase().includes('passed house'));
     } else if (legislationFilter === 'Technology') {
       filtered = filtered.filter(b => b.sector === 'Technology');
     } else if (legislationFilter === 'Financials') {
@@ -910,13 +986,21 @@ const BrowsePage = () => {
                     className="w-full px-3 py-2 bg-white focus:outline-none focus:ring-0 text-sm border-0"
                   >
                     <option value="all">All</option>
-                    <option value="passed">Passed</option>
-                    <option value="failed">Failed</option>
-                    <option value="pending">Pending</option>
-                    <option value="Technology">Technology</option>
-                    <option value="Financials">Financials</option>
-                    <option value="Energy">Energy</option>
-                    <option value="Healthcare">Healthcare</option>
+                    <optgroup label="Status">
+                      <option value="passed">Passed</option>
+                      <option value="failed">Failed</option>
+                      <option value="pending">Pending</option>
+                      <option value="on_calendar">On Calendar</option>
+                      <option value="in_committee">In Committee</option>
+                      <option value="passed_senate">Passed Senate</option>
+                      <option value="passed_house">Passed House</option>
+                    </optgroup>
+                    <optgroup label="Sector">
+                      <option value="Technology">Technology</option>
+                      <option value="Financials">Financials</option>
+                      <option value="Energy">Energy</option>
+                      <option value="Healthcare">Healthcare</option>
+                    </optgroup>
                   </select>
                 )}
               </div>
@@ -1090,120 +1174,197 @@ const BrowsePage = () => {
                 <div className="text-gray-400">Loading recent bills...</div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-l border-r border-black -mx-6">
-                {filteredLegislation.length === 0 ? (
-                  <div className="col-span-2 border-b border-black p-12 text-center">
-                    <div className="text-gray-400">No legislation found</div>
-                  </div>
-                ) : (
-                  filteredLegislation.map((bill, index) => {
-              const isLastInRow = (index + 1) % 2 === 0;
-              
-              return (
-              <Link
-                key={bill.id}
-                to={`/legislation/${bill.id}/bet`}
-                className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
-                  isLastInRow ? 'border-r-0' : ''
-                }`}
-              >
-                {/* Blue square on top-right corner on hover */}
-                <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
+              (() => {
+                // Split bills into bettable and non-bettable groups
+                const bettableBills = filteredLegislation.filter(b => b.isBettable);
+                const nonBettableBills = filteredLegislation.filter(b => !b.isBettable);
                 
-                {/* Left Section - White Background (75-80% width) */}
-                <div className="flex-1 border-r border-black p-6" style={{ width: '75%' }}>
-                  {/* Top Area - Bill ID and Name */}
-                  <div className="mb-4">
-                    <div className="text-xs text-gray-600 mb-1">Bill id</div>
-                    <div className="border-b border-black mb-2"></div>
-                    <div className="text-sm font-medium text-gray-700 mb-1">
-                      {bill.id.startsWith('H.R.') ? bill.id.replace(/^H\.R\./, 'HR.') : bill.id}
-                    </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{bill.title}</h3>
-                  </div>
+                // Helper function to render a bill card
+                const renderBillCard = (bill, index, totalInGroup) => {
+                  const isLastInRow = (index + 1) % 2 === 0;
                   
-                  {/* Bottom Area - Three blocks in a row */}
-                  <div className="flex gap-0">
-                    {/* Sector Block - White */}
-                    <div className="flex-1 p-4 bg-white border-r border-black">
-                      <div className="text-xs text-gray-600 mb-1">Sector</div>
-                      <div className="text-sm font-medium text-gray-900">{bill.sector}</div>
-                    </div>
-                    
-                    {/* Date Block - White */}
-                    <div className="flex-1 p-4 bg-white border-r border-black">
-                      <div className="text-xs text-gray-600 mb-1">date</div>
-                      <div className="text-sm font-medium text-gray-900">{new Date(bill.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                    </div>
-                    
-                    {/* Cosponsors Block - White */}
-                    <div className="flex-1 p-4 bg-white">
-                      <div className="text-xs text-gray-600 mb-1">No.</div>
-                      <div className="text-xs text-gray-600 mb-1">cosponsors</div>
-                      <div className="text-sm font-medium text-gray-900">{bill.cosponsors}</div>
-                    </div>
-                  </div>
-                </div>
+                  return (
+                    <Link
+                      key={bill.id}
+                      to={`/legislation/${bill.id}/bet`}
+                      className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
+                        isLastInRow ? 'border-r-0' : ''
+                      }`}
+                    >
+                      {/* Blue square on top-right corner on hover */}
+                      <div className="absolute top-[-1px] right-[-1px] w-4 h-4 bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity z-10 border border-black"></div>
+                      
+                      {/* Left Section - White Background (75-80% width) */}
+                      <div className="flex-1 border-r border-black p-6 flex flex-col" style={{ width: '75%' }}>
+                        {/* Top Area - Bill ID and Name - Fixed height container */}
+                        <div className="mb-4 flex-shrink-0" style={{ minHeight: '7.5rem' }}>
+                          <div className="text-xs text-gray-600 mb-1">Bill id</div>
+                          <div className="border-b border-black mb-2"></div>
+                          <div className="text-sm font-medium text-gray-700 mb-1">
+                            {bill.id.startsWith('H.R.') ? bill.id.replace(/^H\.R\./, 'HR.') : bill.id}
+                          </div>
+                          <h3 className="text-2xl font-bold text-gray-900 line-clamp-2" style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            lineHeight: '1.3',
+                            minHeight: '3.9rem', // Fixed minimum height to match maxHeight
+                            maxHeight: '3.9rem' // Approximately 2 lines at text-2xl
+                          }}>{bill.title}</h3>
+                        </div>
+                        
+                        {/* Bottom Area - Three blocks in a row - Fixed position at bottom */}
+                        <div className="flex gap-0 mt-auto">
+                          {/* Sector Block - White */}
+                          <div className="flex-1 p-4 bg-white border-r border-black">
+                            <div className="text-xs text-gray-600 mb-1">Sector</div>
+                            <div className="text-sm font-medium text-gray-900">{bill.sector}</div>
+                          </div>
+                          
+                          {/* Date Block - White */}
+                          <div className="flex-1 p-4 bg-white border-r border-black">
+                            <div className="text-xs text-gray-600 mb-1">date</div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {(() => {
+                                // Try to get date from bill.date, or from latest_action.date if available
+                                const dateValue = bill.date || bill.latest_action?.date || bill.introduced_date;
+                                
+                                if (!dateValue) {
+                                  return 'N/A';
+                                }
+                                
+                                try {
+                                  // Handle both ISO strings and YYYY-MM-DD format
+                                  const dateObj = new Date(dateValue);
+                                  if (!isNaN(dateObj.getTime())) {
+                                    return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                  }
+                                } catch (e) {
+                                  console.warn(`Error formatting date for bill ${bill.id}:`, dateValue, e);
+                                }
+                                
+                                return 'N/A';
+                              })()}
+                            </div>
+                          </div>
+                          
+                          {/* Cosponsors Block - White */}
+                          <div className="flex-1 p-4 bg-white">
+                            <div className="text-xs text-gray-600 mb-1">No.</div>
+                            <div className="text-xs text-gray-600 mb-1">cosponsors</div>
+                            <div className="text-sm font-medium text-gray-900">{bill.cosponsors}</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Right Section - Status-colored Background (20-25% width) */}
+                      {bill.isBettable ? (
+                        <div 
+                          className={`flex items-center justify-center p-6 ${
+                            bill.passingOdds >= 0.5 ? 'bg-green-50' : 'bg-red-50'
+                          }`} 
+                          style={{ width: '25%' }}
+                        >
+                          <div className="text-center">
+                            <div 
+                              className={`font-bold ${bill.passingOdds >= 0.5 ? 'text-green-700' : 'text-red-700'}`}
+                              style={{ fontSize: '3.5rem' }}
+                            >
+                              {(bill.passingOdds * 100).toFixed(1)}%
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div 
+                          className={`flex items-center justify-center p-6 ${getStatusColor(bill.status).bg}`}
+                          style={{ width: '25%' }}
+                        >
+                          <div className="text-center">
+                            <div 
+                              className={`font-bold ${getStatusColor(bill.status).text}`}
+                              style={{ 
+                                fontSize: bill.status && bill.status.length > 15 ? '1.2rem' : bill.status && bill.status.length > 10 ? '1.5rem' : '1.8rem', 
+                                lineHeight: '1.2' 
+                              }}
+                            >
+                              {bill.isPassed ? 'PASSED' : bill.isFailed ? 'FAILED' : (bill.status || 'PENDING').toUpperCase()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </Link>
+                  );
+                };
                 
-                {/* Right Section - Green or Red Background (20-25% width) */}
-                <div 
-                  className={`flex items-center justify-center p-6 ${
-                    bill.isBettable 
-                      ? (bill.passingOdds >= 0.5 ? 'bg-green-50' : 'bg-red-50')
-                      : (bill.isPassed ? 'bg-green-50' : bill.isFailed ? 'bg-red-50' : 'bg-gray-50')
-                  }`} 
-                  style={{ width: '25%' }}
-                >
-                  <div className="text-center">
-                    {bill.isBettable ? (
-                      // Show percentage for bettable bills
-                      <div 
-                        className={`font-bold ${bill.passingOdds >= 0.5 ? 'text-green-700' : 'text-red-700'}`}
-                        style={{ fontSize: '3.5rem' }}
-                      >
-                        {(bill.passingOdds * 100).toFixed(1)}%
-                      </div>
-                    ) : (
-                      // Show status for non-bettable bills - use actual status instead of PENDING
-                      <div 
-                        className={`font-bold ${
-                          bill.isPassed ? 'text-green-700' : bill.isFailed ? 'text-red-700' : 'text-gray-700'
-                        }`}
-                        style={{ 
-                          fontSize: bill.status && bill.status.length > 15 ? '1.2rem' : bill.status && bill.status.length > 10 ? '1.5rem' : '1.8rem', 
-                          lineHeight: '1.2' 
-                        }}
-                      >
-                        {bill.isPassed ? 'PASSED' : bill.isFailed ? 'FAILED' : (bill.status || 'PENDING').toUpperCase()}
+                return (
+                  <>
+                    {/* Bettable bills grid */}
+                    {bettableBills.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-l border-r border-black -mx-6">
+                        {bettableBills.map((bill, index) => renderBillCard(bill, index, bettableBills.length))}
                       </div>
                     )}
-                  </div>
-                </div>
-              </Link>
-              );
-                  })
-                )}
-                {/* Observer target for infinite scroll */}
-                {(displayedBillsCount < recentBills.length || 
-                  (totalBillsCount > 0 && recentBills.length < totalBillsCount) ||
-                  (totalBillsCount === 0 && recentBills.length > 0 && !loadingMoreBills)) && (
-                  <div 
-                    ref={legislationObserverTarget} 
-                    className="col-span-2 border-b border-black p-6 text-center"
-                    style={{ minHeight: '100px' }} // Ensure it's visible for the observer
-                  >
-                    {loadingMoreBills ? (
-                      <div className="text-gray-600">Loading more bills...</div>
-                    ) : (
-                      <div className="text-gray-400 text-sm">
-                        {displayedBillsCount < recentBills.length 
-                          ? `Showing ${displayedBillsCount} of ${recentBills.length} loaded bills. Scroll for more...`
-                          : 'Scroll for more bills...'}
+                    
+                    {/* Separator line between bettable and non-bettable bills */}
+                    {bettableBills.length > 0 && nonBettableBills.length > 0 && (
+                      <div className="w-full border-t-2 border-black my-8 -mx-6"></div>
+                    )}
+                    
+                    {/* Non-bettable bills grid */}
+                    {nonBettableBills.length > 0 && (
+                      <div className={`grid grid-cols-1 md:grid-cols-2 gap-0 border-l border-r border-black -mx-6 ${bettableBills.length > 0 ? 'border-t-0' : 'border-t'}`}>
+                        {nonBettableBills.map((bill, index) => renderBillCard(bill, index, nonBettableBills.length))}
+                        
+                        {/* Observer target for infinite scroll */}
+                        {(displayedBillsCount < recentBills.length || 
+                          (totalBillsCount > 0 && recentBills.length < totalBillsCount) ||
+                          (totalBillsCount === 0 && recentBills.length > 0 && !loadingMoreBills)) && (
+                          <div 
+                            ref={legislationObserverTarget} 
+                            className="col-span-2 border-b border-black p-6 text-center"
+                            style={{ minHeight: '100px' }} // Ensure it's visible for the observer
+                          >
+                            {loadingMoreBills ? (
+                              <div className="text-gray-600">Loading more bills...</div>
+                            ) : (
+                              <div className="text-gray-400 text-sm">
+                                {displayedBillsCount < recentBills.length 
+                                  ? `Showing ${displayedBillsCount} of ${recentBills.length} loaded bills. Scroll for more...`
+                                  : 'Scroll for more bills...'}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-              </div>
+                    
+                    {/* Observer target for infinite scroll - if only bettable bills exist */}
+                    {bettableBills.length > 0 && nonBettableBills.length === 0 && (
+                      (displayedBillsCount < recentBills.length || 
+                        (totalBillsCount > 0 && recentBills.length < totalBillsCount) ||
+                        (totalBillsCount === 0 && recentBills.length > 0 && !loadingMoreBills)) && (
+                        <div 
+                          ref={legislationObserverTarget} 
+                          className="w-full border-t border-b border-l border-r border-black p-6 text-center -mx-6"
+                          style={{ minHeight: '100px' }}
+                        >
+                          {loadingMoreBills ? (
+                            <div className="text-gray-600">Loading more bills...</div>
+                          ) : (
+                            <div className="text-gray-400 text-sm">
+                              {displayedBillsCount < recentBills.length 
+                                ? `Showing ${displayedBillsCount} of ${recentBills.length} loaded bills. Scroll for more...`
+                                : 'Scroll for more bills...'}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    )}
+                  </>
+                );
+              })()
             )}
           </>
         )}

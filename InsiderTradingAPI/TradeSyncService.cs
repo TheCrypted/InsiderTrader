@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,6 +15,8 @@ public sealed class TradeSyncService : BackgroundService
     private readonly ILogger<TradeSyncService> _logger;
     private readonly TimeSpan _interval;
     private readonly IHubContext<TradeHub> _hub;
+    private readonly string CONGRESS_API_TOKEN;
+
 
     public TradeSyncService(
         IServiceProvider services,
@@ -27,6 +30,7 @@ public sealed class TradeSyncService : BackgroundService
         _logger = logger;
         _hub = hub;
         _interval = TimeSpan.FromMilliseconds(Math.Max(250, opts.Value.IntervalMS));
+        CONGRESS_API_TOKEN = Environment.GetEnvironmentVariable("CONGRESS_API_TOKEN") ?? string.Empty;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -133,7 +137,7 @@ public sealed class TradeSyncService : BackgroundService
         await db.SaveChangesAsync();
 
         foreach (var trade in toInsert) {
-            List<string> bills = GetRelevantBills(trade.bioGuideId, trade.ticker);
+            List<string> bills = await GetRelevantBills(trade.bioGuideId, trade.ticker);
             foreach (var billId in bills) {
                 double modelResponse = AskHardik(billId);
                 var notification = new TradeOrLobbyingNotification(billId, 
@@ -148,8 +152,50 @@ public sealed class TradeSyncService : BackgroundService
         return 55.0;
     }
 
-    public List<string> GetRelevantBills(string politicianId, string companyTicker) { // todo
-        return new List<string>(); // add bills sponsored by this person and bills relevant to company
+    public async Task<List<string>> GetRelevantBills(string politicianId, string companyTicker) { // todo
+        var bills = new List<string>(); // add bills sponsored by this person and bills relevant to company
+        var client = _httpClientFactory.CreateClient();
+        // billId = congress number + billtype without spaces or dots to lowercase + number
+        var resp = await client.GetAsync($"https://api.congress.gov/v3/member/{politicianId}/sponsored-legislation?api_key={CONGRESS_API_TOKEN}");
+        if (resp.IsSuccessStatusCode) {
+            await using var stream = await resp.Content.ReadAsStreamAsync();
+            using var doc = await JsonDocument.ParseAsync(stream);
+            var billIds =
+                doc.RootElement.GetProperty("sponsoredLegislation")
+                    .EnumerateArray()
+                    .Select(e =>
+                    {
+                        // must have congress, type, and number to form a billId
+                        if (!e.TryGetProperty("congress", out var c) || c.ValueKind != JsonValueKind.Number)
+                            return null;
+
+                        if (!e.TryGetProperty("type", out var t) || t.ValueKind != JsonValueKind.String)
+                            return null; // likely an amendment; skip
+
+                        if (!e.TryGetProperty("number", out var n) || n.ValueKind != JsonValueKind.String)
+                            return null;
+
+                        var congress = c.GetInt32().ToString(CultureInfo.InvariantCulture);
+                        var typeRaw = t.GetString() ?? "";
+                        var number = n.GetString()?.Trim();
+
+                        if (string.IsNullOrWhiteSpace(number))
+                            return null;
+
+                        // remove spaces/dots and lower-case the type
+                        var normalizedType = new string(typeRaw.Where(ch => ch != ' ' && ch != '.').ToArray())
+                            .ToLowerInvariant();
+
+                        return $"{congress}{normalizedType}{number}";
+                    })
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct()
+                    .ToList();
+
+            bills.AddRange(billIds);
+        }
+
+        return bills;
     }
     
     private static Trade ToTrade(CongressionalTradeLiveResponse r)

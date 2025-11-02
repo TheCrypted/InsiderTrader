@@ -515,13 +515,19 @@ def recent_bills(
     Return the last N bills by latest action from Congress.gov.
     Supports pagination via limit and offset.
     Uses summary data from Congress.gov API (fast, no individual bill enrichment).
+    
+    Note: Congress.gov API v3 supports offset/limit directly, but we may need
+    to fetch more than requested to ensure we get enough valid bills after filtering.
     """
     url = "https://api.congress.gov/v3/bill"
     
-    # Fetch bills from Congress.gov - request enough to handle offset + limit
-    fetch_limit = min(250, max(limit + offset, 10))
+    # Calculate how many bills we need to fetch to get the requested page
+    # We request more than needed because some bills might be invalid after normalization
+    # Request at least limit + offset + buffer, but cap at 250 (Congress.gov API limit per request)
+    fetch_limit = min(250, max(limit + offset + 50, 10))
     
     try:
+        # Congress.gov API v3 supports offset parameter directly
         r = _get(
             url,
             params={
@@ -529,6 +535,7 @@ def recent_bills(
                 "format": "json",
                 "congress": CONGRESS,
                 "limit": fetch_limit,
+                "offset": offset,  # Pass offset directly to Congress.gov API
             },
         )
     except Exception as e:
@@ -536,6 +543,18 @@ def recent_bills(
 
     data = r.json()
     items = data.get("bills", []) or []
+
+    # Get total count from API response if available
+    total_count_from_api = data.get("pagination", {}).get("count", 0)
+    
+    # If we have pagination info, use it for total count
+    if total_count_from_api > 0:
+        # Congress.gov might return a total count in pagination object
+        total_count = total_count_from_api
+    else:
+        # Fallback: if we got a full page, there might be more
+        # Estimate total based on what we received
+        total_count = len(items) + offset if len(items) >= fetch_limit else len(items) + offset
 
     # Normalize a compact payload - use summary data only (fast)
     results = []
@@ -551,6 +570,22 @@ def recent_bills(
         if not bill_id:
             continue
         
+        # Get status if available from latest_action
+        status = None
+        if la.get("text"):
+            # Try to determine status from latest action text
+            action_text = la.get("text", "").lower()
+            if "passed senate" in action_text or "senate passed" in action_text:
+                status = "Passed Senate"
+            elif "passed house" in action_text or "house passed" in action_text:
+                status = "Passed House"
+            elif "placed on" in action_text and ("calendar" in action_text):
+                status = "On Calendar"
+            elif "referred to" in action_text or "committee" in action_text:
+                status = "In Committee"
+            elif "introduced" in action_text:
+                status = "Introduced"
+        
         # Use summary data directly from Congress.gov API
         results.append({
             "bill_id": bill_id,
@@ -560,6 +595,7 @@ def recent_bills(
                 "date": la.get("actionDate") or b.get("introducedDate"),
                 "text": la.get("text"),
             },
+            "status": status,  # Include status if we determined it
             "policy_area": None,  # Not available in summary
             "sponsors": [],  # Not available in summary
             "cosponsors_count": 0,  # Not available in summary
@@ -567,11 +603,13 @@ def recent_bills(
         })
 
     # Sort by latest_action date (most recent first), fallback to introduced_date
+    # Note: Congress.gov API should already return sorted results, but we sort again to be safe
     results.sort(key=lambda x: (x.get("latest_action", {}).get("date") or x.get("introduced_date") or ""), reverse=True)
     
-    # Apply pagination
-    total_count = len(results)
-    paginated_results = results[offset:offset + limit]
+    # Apply client-side pagination (in case we fetched more than needed)
+    # Since we passed offset to Congress.gov API, we should already have the right page
+    # But we still apply pagination here in case we fetched extra
+    paginated_results = results[:limit]
     
     return {"count": total_count, "results": paginated_results}
 
