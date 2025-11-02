@@ -221,7 +221,7 @@ def predict_bill(
     bill_number: int = Query(..., ge=1),
     threshold: float = Query(0.5, ge=0.0, le=1.0),
 ):
-    api_key = os.getenv("CONGRESS_API_KEY")
+    api_key = 
     if not api_key:
         raise HTTPException(status_code=500, detail="Set CONGRESS_API_KEY env variable.")
 

@@ -834,6 +834,17 @@ const modelApiClient = axios.create({
   timeout: 20000, // 20 second timeout (stocks can take 10-15 seconds)
 });
 
+// ML Prediction API client (app.py on port 8001)
+const ML_API_BASE_URL = import.meta.env.VITE_ML_API_BASE_URL || (import.meta.env.DEV ? '/ml-api' : 'http://localhost:8001');
+
+const mlApiClient = axios.create({
+  baseURL: ML_API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 30000, // 30 second timeout for ML prediction (can take time to fetch bill data and compute)
+});
+
 // Fetch bills sponsored by a specific congressman
 export const getMemberBills = async (bioguideId, limit = 5) => {
   try {
@@ -1299,28 +1310,45 @@ export const getMLPrediction = async (billId) => {
       return null;
     }
 
-    console.log(`Fetching ML prediction for ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
+    // Try to get congress number from bill info, fallback to 119 (current Congress)
+    let congress = 119; // Default to 119th Congress
+    try {
+      const billInfo = await getBillInfo(billId);
+      if (billInfo && billInfo.congress) {
+        congress = parseInt(billInfo.congress, 10);
+      }
+    } catch (error) {
+      console.warn(`Could not fetch bill info to get congress number, using default 119:`, error.message);
+    }
+
+    console.log(`Fetching ML prediction for ${billId} -> congress: ${congress}, bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
     
-    const response = await modelApiClient.get('/predict', {
+    // Call the ML prediction API (app.py) endpoint /predict_bill
+    const response = await mlApiClient.get('/predict_bill', {
       params: {
-        bill_type: parsed.bill_type,
+        congress: congress,
+        bill_type: parsed.bill_type, // Already lowercase from parseBillId
         bill_number: parsed.bill_number,
+        threshold: 0.5, // Default threshold (optional parameter)
       },
-      timeout: 15000, // 15 second timeout for ML prediction
+      timeout: 30000, // 30 second timeout for ML prediction
     });
 
-    if (response.data && response.data.probability !== undefined) {
+    if (response.data) {
+      // Map app.py response format to frontend format
+      // app.py returns: prob_pass, prob_fail, predicted_class, model_version, etc.
       return {
-        probability: response.data.probability, // Should be between 0 and 1
-        confidence: response.data.confidence || null,
+        probability: response.data.prob_pass || 0, // Probability of passing (0-1)
+        confidence: null, // app.py doesn't provide confidence separately
         modelVersion: response.data.model_version || null,
+        predictedClass: response.data.predicted_class, // 1 = Pass, 0 = Fail
+        probFail: response.data.prob_fail || 0, // Probability of failing (0-1)
       };
     }
     return null;
   } catch (error) {
     console.error(`Error fetching ML prediction for ${billId}:`, error.message || error);
-    // Return a mock prediction if API is not available
-    // In production, this would fall back gracefully
+    // Return null if API is not available (graceful fallback)
     return {
       probability: null, // No prediction available
       confidence: null,

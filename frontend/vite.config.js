@@ -17,6 +17,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/model-api/, ''),
       },
+      // Proxy for ML prediction API (port 8001 - app.py)
+      '/ml-api': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ml-api/, ''),
+      },
       // Proxy for Alpaca Market Data API
       '/alpaca-api': {
         target: 'https://data.alpaca.markets/v2',
