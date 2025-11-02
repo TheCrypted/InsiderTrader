@@ -1,0 +1,22 @@
+[
+  "congress",
+  "sponsor_dem_count",
+  "sponsor_rep_count",
+  "sponsor_other_count",
+  "sponsor_majority_party",
+  "num_cosponsors",
+  "num_committees",
+  "num_actions",
+  "days_since_intro",
+  "intro_year",
+  "intro_month",
+  "is_house_bill",
+  "is_senate_bill",
+  "total_support",
+  "has_cosponsors",
+  "stock_avg_return_7d",
+  "stock_avg_return_30d",
+  "stock_pct_positive",
+  "stock_volatility",
+  "stock_momentum"
+]

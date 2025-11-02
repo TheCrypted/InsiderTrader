@@ -148,7 +148,7 @@ public sealed class TradeSyncService : BackgroundService
         }
     }
 
-    public static double AskHardik(string billId) { // todo
+    public static async Task<double> AskHardik(string billId) { // todo
         return 55.0;
     }
 

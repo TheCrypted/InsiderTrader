@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getTickerSectors } from './tickerToSector';
 
 // Use proxy in development, or direct API URL in production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8080');
@@ -407,9 +408,8 @@ export const getChartData = async (congressmanId) => {
     // Sort by year
     const volumeByYear = combinedData.sort((a, b) => a.year - b.year);
     
-    // Calculate sector data from trades (simplified - can be enhanced later)
-    // For now, return empty array since trades don't have sector information
-    const sectorData = [];
+    // Calculate sector data from trades
+    const sectorData = await calculateSectorDataFromTrades(trades);
     
     return {
       volumeByYear,
@@ -421,6 +421,78 @@ export const getChartData = async (congressmanId) => {
       volumeByYear: [],
       sectorData: []
     };
+  }
+};
+
+// Calculate sector data from trades for pie chart
+const calculateSectorDataFromTrades = async (trades) => {
+  try {
+    if (!trades || trades.length === 0) {
+      return [];
+    }
+    
+    // Filter trades from this year only
+    const currentYear = new Date().getFullYear();
+    const currentYearTrades = trades.filter(trade => {
+      if (!trade.tradedAt || trade.tradedAt.length < 4) return false;
+      const year = parseInt(trade.tradedAt.substring(0, 4));
+      return !isNaN(year) && year === currentYear;
+    });
+    
+    if (currentYearTrades.length === 0) {
+      return [];
+    }
+    
+    // Get unique ticker symbols from trades
+    const tickers = [...new Set(
+      currentYearTrades
+        .map(trade => trade.ticker || trade.stock)
+        .filter(ticker => ticker && ticker !== '-' && ticker !== 'N/A')
+    )];
+    
+    if (tickers.length === 0) {
+      return [];
+    }
+    
+    // Fetch sectors for all unique tickers
+    const sectorMap = await getTickerSectors(tickers);
+    
+    // Calculate total volume by sector
+    const sectorVolumeMap = {};
+    
+    currentYearTrades.forEach(trade => {
+      const ticker = (trade.ticker || trade.stock || '').trim().toUpperCase();
+      if (!ticker || ticker === '-' || ticker === 'N/A') return;
+      
+      const sector = sectorMap[ticker] || 'Unknown';
+      const amount = parseTradeAmount(trade.tradeAmount || '0');
+      
+      if (!sectorVolumeMap[sector]) {
+        sectorVolumeMap[sector] = 0;
+      }
+      sectorVolumeMap[sector] += amount;
+    });
+    
+    // Convert to array and calculate percentages
+    const totalVolume = Object.values(sectorVolumeMap).reduce((sum, vol) => sum + vol, 0);
+    
+    if (totalVolume === 0) {
+      return [];
+    }
+    
+    const sectorDataArray = Object.entries(sectorVolumeMap)
+      .map(([sector, volume]) => ({
+        sector,
+        volume,
+        percentage: Math.round((volume / totalVolume) * 100)
+      }))
+      .filter(item => item.percentage > 0) // Only include sectors with > 0%
+      .sort((a, b) => b.percentage - a.percentage); // Sort by percentage descending
+    
+    return sectorDataArray;
+  } catch (error) {
+    console.error('Error calculating sector data from trades:', error);
+    return [];
   }
 };
 
@@ -483,47 +555,42 @@ export const getStockBars = async (symbols, timeframe = '1Day', days = 5) => {
     // params.end = formatDate(yesterday);
 
     console.log('Fetching stock bars with params:', params);
-    console.log('Using baseURL:', alpacaDataClient.defaults.baseURL);
     
-    // Try with proxy first (dev mode) or direct (production)
+    // Use direct connection to avoid proxy issues (proxy often fails with 400 Bad Request)
+    // The proxy configuration might not forward headers correctly for Alpaca API
+    const directClient = axios.create({
+      baseURL: 'https://data.alpaca.markets/v2',
+      headers: {
+        'APCA-API-KEY-ID': ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': ALPACA_SECRET,
+      },
+      timeout: 15000,
+    });
+    
     try {
-      const response = await alpacaDataClient.get('/stocks/bars', { params });
-      console.log('Successfully fetched stock bars:', response.data);
+      const response = await directClient.get('/stocks/bars', { params });
+      console.log('Direct connection succeeded:', response.data);
       return response.data;
-    } catch (proxyError) {
-      console.error('Proxy request failed:', {
-        status: proxyError.response?.status,
-        statusText: proxyError.response?.statusText,
-        data: proxyError.response?.data,
-        url: proxyError.config?.url,
-      });
-      
-      // If proxy fails in dev, try direct connection as fallback
-      if (import.meta.env.DEV && (proxyError.response?.status === 401 || proxyError.response?.status === 400)) {
-        console.warn('Proxy request failed, trying direct connection...');
-        const directClient = axios.create({
-          baseURL: 'https://data.alpaca.markets/v2',
-          headers: {
-            'APCA-API-KEY-ID': ALPACA_API_KEY,
-            'APCA-API-SECRET-KEY': ALPACA_SECRET,
-          },
-          timeout: 15000,
-        });
-        
-        try {
-          const response = await directClient.get('/stocks/bars', { params });
-          console.log('Direct connection succeeded:', response.data);
-          return response.data;
-        } catch (directError) {
-          console.error('Direct connection also failed:', {
+    } catch (directError) {
+      // If direct connection fails, try proxy as fallback
+      console.warn('Direct connection failed, trying proxy...', directError.message);
+      try {
+        const response = await alpacaDataClient.get('/stocks/bars', { params });
+        console.log('Proxy request succeeded:', response.data);
+        return response.data;
+      } catch (proxyError) {
+        console.error('Both direct and proxy connections failed:', {
+          direct: {
             status: directError.response?.status,
-            statusText: directError.response?.statusText,
-            data: directError.response?.data,
-          });
-          throw directError;
-        }
+            message: directError.message,
+          },
+          proxy: {
+            status: proxyError.response?.status,
+            message: proxyError.message,
+          },
+        });
+        throw directError; // Throw the original error
       }
-      throw proxyError;
     }
   } catch (error) {
     console.error('Error fetching stock bars from Alpaca:', error);
@@ -749,6 +816,37 @@ const modelApiClient = axios.create({
   },
   timeout: 20000, // 20 second timeout (stocks can take 10-15 seconds)
 });
+
+// Fetch bills sponsored by a specific congressman
+export const getMemberBills = async (bioguideId, limit = 5) => {
+  try {
+    const response = await modelApiClient.get('/member_bills', {
+      params: {
+        bioguide_id: bioguideId,
+        limit: limit,
+      },
+      timeout: 60000, // 60 second timeout (member bills can take time)
+    });
+    
+    if (response.data && response.data.bills) {
+      return response.data.bills.map((bill) => ({
+        id: bill.bill_id,
+        title: bill.title || 'Untitled Bill',
+        status: bill.status || 'Introduced',
+        date: bill.introduced_date || bill.latest_action?.date || null,
+        chamber: bill.bill_id?.startsWith('H') || bill.bill_id?.startsWith('HR') ? 'House' : 'Senate',
+        summary: bill.summary || '',
+        committees: bill.committees || [],
+        cosponsors: bill.cosponsors_count || 0,
+        sector: null, // Not available from API
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching member bills:', error);
+    return [];
+  }
+};
 
 // Fetch recent bills from model API
 export const getRecentBills = async (limit = null, offset = 0) => {

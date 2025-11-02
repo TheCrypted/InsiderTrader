@@ -1,10 +1,40 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import LoadingSpinner from '../shared/LoadingSpinner';
+import { getMemberBills } from '../../utils/api';
+import { useCongressmanData } from '../../hooks/useCongressmanData';
 
 const ProposedLegislation = ({ congressmanId, loading }) => {
-  // Mock proposed legislation data
-  const legislationData = [
+  const { congressman } = useCongressmanData(congressmanId);
+  const [legislationData, setLegislationData] = useState([]);
+  const [loadingBills, setLoadingBills] = useState(true);
+  
+  useEffect(() => {
+    const fetchBills = async () => {
+      if (!congressman?.id) {
+        setLoadingBills(false);
+        return;
+      }
+      
+      try {
+        setLoadingBills(true);
+        const bills = await getMemberBills(congressman.id, 5);
+        setLegislationData(bills);
+      } catch (error) {
+        console.error('Error fetching proposed legislation:', error);
+        setLegislationData([]);
+      } finally {
+        setLoadingBills(false);
+      }
+    };
+    
+    if (congressman?.id) {
+      fetchBills();
+    }
+  }, [congressman?.id]);
+  
+  // Mock data fallback (shown if API returns empty)
+  const mockLegislationData = [
     {
       id: 'H.R.1234',
       title: 'AI Transparency and Accountability Act',
@@ -81,9 +111,12 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
     'Enacted': 'bg-gresearch-vivid-green text-white'
   };
 
+  // Use real data if available, otherwise use mock data
+  const dataToUse = legislationData.length > 0 ? legislationData : mockLegislationData;
+  
   const filteredData = filter === 'all' 
-    ? legislationData 
-    : legislationData.filter(bill => bill.status === filter);
+    ? dataToUse 
+    : dataToUse.filter(bill => bill.status === filter);
 
   const sortedData = [...filteredData].sort((a, b) => {
     let aValue = a[sortConfig.key];
@@ -110,7 +143,7 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  if (loading) {
+  if (loading || loadingBills) {
     return (
       <div className="bg-white p-8 flex items-center justify-center">
         <LoadingSpinner />
@@ -124,18 +157,18 @@ const ProposedLegislation = ({ congressmanId, loading }) => {
       <div className="grid grid-cols-3 border-b border-black">
         <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">Total Bills</div>
-          <div className="text-xl font-semibold text-gray-900">{legislationData.length}</div>
+          <div className="text-xl font-semibold text-gray-900">{dataToUse.length}</div>
         </div>
         <div className="bg-white p-6 border-r border-black">
           <div className="text-xs text-gray-600 mb-1">In Committee</div>
           <div className="text-xl font-semibold text-gray-900">
-            {legislationData.filter(b => b.status === 'In Committee').length}
+            {dataToUse.filter(b => b.status === 'In Committee' || b.status?.includes('Committee')).length}
           </div>
         </div>
         <div className="bg-white p-6">
           <div className="text-xs text-gray-600 mb-1">Total Cosponsors</div>
           <div className="text-xl font-semibold text-gray-900">
-            {legislationData.reduce((sum, b) => sum + b.cosponsors, 0)}
+            {dataToUse.reduce((sum, b) => sum + (b.cosponsors || 0), 0)}
           </div>
         </div>
       </div>
