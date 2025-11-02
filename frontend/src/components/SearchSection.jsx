@@ -58,55 +58,55 @@ export default function SearchSection({ onSearch }) {
             </linearGradient>
           </defs>
           
-          {/* Primary diagonal lines */}
-          <line x1="0" y1="0" x2="1200" y2="840" stroke="url(#lineGradient1)" strokeWidth="1.5" />
-          <line x1="200" y1="0" x2="1000" y2="840" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-          <line x1="400" y1="0" x2="1200" y2="600" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-          <line x1="0" y1="200" x2="1200" y2="840" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-          <line x1="600" y1="0" x2="1200" y2="420" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          {/* Primary diagonal lines with twinkle */}
+          <line x1="0" y1="0" x2="1200" y2="840" stroke="url(#lineGradient1)" strokeWidth="1.5" className="animate-twinkle" style={{ animationDelay: '0s' }} />
+          <line x1="200" y1="0" x2="1000" y2="840" stroke="rgba(255,255,255,0.12)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.3s' }} />
+          <line x1="400" y1="0" x2="1200" y2="600" stroke="rgba(255,255,255,0.1)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.6s' }} />
+          <line x1="0" y1="200" x2="1200" y2="840" stroke="rgba(255,255,255,0.1)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.9s' }} />
+          <line x1="600" y1="0" x2="1200" y2="420" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '1.2s' }} />
           
-          {/* Secondary diagonal lines */}
-          <line x1="0" y1="300" x2="800" y2="840" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-          <line x1="300" y1="0" x2="1200" y2="560" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          {/* Secondary diagonal lines with twinkle */}
+          <line x1="0" y1="300" x2="800" y2="840" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.5s' }} />
+          <line x1="300" y1="0" x2="1200" y2="560" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '1.1s' }} />
           
-          {/* Grid lines - vertical */}
-          <line x1="400" y1="0" x2="400" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-          <line x1="600" y1="0" x2="600" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-          <line x1="800" y1="0" x2="800" y2="840" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-          <line x1="1000" y1="0" x2="1000" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+          {/* Grid lines - vertical with twinkle */}
+          <line x1="400" y1="0" x2="400" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.4s' }} />
+          <line x1="600" y1="0" x2="600" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.8s' }} />
+          <line x1="800" y1="0" x2="800" y2="840" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '1.2s' }} />
+          <line x1="1000" y1="0" x2="1000" y2="840" stroke="rgba(255,255,255,0.06)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.2s' }} />
           
-          {/* Grid lines - horizontal */}
-          <line x1="0" y1="210" x2="1200" y2="210" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-          <line x1="0" y1="420" x2="1200" y2="420" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-          <line x1="0" y1="630" x2="1200" y2="630" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+          {/* Grid lines - horizontal with twinkle */}
+          <line x1="0" y1="210" x2="1200" y2="210" stroke="rgba(255,255,255,0.06)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '0.7s' }} />
+          <line x1="0" y1="420" x2="1200" y2="420" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '1.4s' }} />
+          <line x1="0" y1="630" x2="1200" y2="630" stroke="rgba(255,255,255,0.06)" strokeWidth="1" className="animate-twinkle-subtle" style={{ animationDelay: '1.1s' }} />
           
-          {/* Connection lines between nodes */}
-          <line x1="600" y1="150" x2="800" y2="300" stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" />
-          <line x1="850" y1="200" x2="1000" y2="350" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" />
-          <line x1="700" y1="500" x2="950" y2="650" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-          <line x1="600" y1="150" x2="950" y2="500" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+          {/* Connection lines between nodes with twinkle */}
+          <line x1="600" y1="150" x2="800" y2="300" stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" className="animate-twinkle" style={{ animationDelay: '0.1s' }} />
+          <line x1="850" y1="200" x2="1000" y2="350" stroke="rgba(255,255,255,0.12)" strokeWidth="0.5" className="animate-twinkle" style={{ animationDelay: '0.5s' }} />
+          <line x1="700" y1="500" x2="950" y2="650" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" className="animate-twinkle" style={{ animationDelay: '0.9s' }} />
+          <line x1="600" y1="150" x2="950" y2="500" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" className="animate-twinkle-subtle" style={{ animationDelay: '1.3s' }} />
           
-          {/* Nodes - white squares (increased quantity) */}
-          <rect x="300" y="100" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="600" y="150" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="800" y="300" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="950" y="200" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="1000" y="350" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="700" y="500" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="950" y="500" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="1050" y="650" width="8" height="8" fill="white" opacity="0.4" />
-          <rect x="450" y="600" width="8" height="8" fill="white" opacity="0.3" />
-          <rect x="550" y="700" width="8" height="8" fill="white" opacity="0.3" />
+          {/* Nodes - white squares (increased quantity) with twinkle animation */}
+          <rect x="300" y="100" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '0s' }} />
+          <rect x="600" y="150" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '0.2s' }} />
+          <rect x="800" y="300" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '0.4s' }} />
+          <rect x="950" y="200" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '0.6s' }} />
+          <rect x="1000" y="350" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '0.8s' }} />
+          <rect x="700" y="500" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '1s' }} />
+          <rect x="950" y="500" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '1.2s' }} />
+          <rect x="1050" y="650" width="8" height="8" fill="white" opacity="0.4" className="animate-twinkle-subtle" style={{ animationDelay: '1.4s' }} />
+          <rect x="450" y="600" width="8" height="8" fill="white" opacity="0.3" className="animate-twinkle-subtle" style={{ animationDelay: '0.3s' }} />
+          <rect x="550" y="700" width="8" height="8" fill="white" opacity="0.3" className="animate-twinkle-subtle" style={{ animationDelay: '0.7s' }} />
           
-          {/* Neon yellow accent nodes (increased and better positioned) */}
-          <rect x="600" y="150" width="12" height="12" fill="#FFFF00" opacity="0.9" />
-          <rect x="850" y="450" width="12" height="12" fill="#FFFF00" opacity="0.9" />
-          <rect x="1050" y="250" width="10" height="10" fill="#FFFF00" opacity="0.8" />
-          <rect x="400" y="550" width="10" height="10" fill="#FFFF00" opacity="0.8" />
+          {/* Neon yellow accent nodes (increased and better positioned) with strong twinkle */}
+          <rect x="600" y="150" width="12" height="12" fill="#FFFF00" opacity="0.9" className="animate-twinkle-strong" style={{ animationDelay: '0s' }} />
+          <rect x="850" y="450" width="12" height="12" fill="#FFFF00" opacity="0.9" className="animate-twinkle-strong" style={{ animationDelay: '0.5s' }} />
+          <rect x="1050" y="250" width="10" height="10" fill="#FFFF00" opacity="0.8" className="animate-twinkle-strong" style={{ animationDelay: '1s' }} />
+          <rect x="400" y="550" width="10" height="10" fill="#FFFF00" opacity="0.8" className="animate-twinkle-strong" style={{ animationDelay: '1.5s' }} />
           
-          {/* Additional geometric shapes */}
-          <polygon points="750,150 800,180 750,210 700,180" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-          <circle cx="900" cy="400" r="15" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+          {/* Additional geometric shapes with twinkle */}
+          <polygon points="750,150 800,180 750,210 700,180" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" className="animate-twinkle" style={{ animationDelay: '0.3s' }} />
+          <circle cx="900" cy="400" r="15" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" className="animate-twinkle" style={{ animationDelay: '0.6s' }} />
         </svg>
       </div>
 

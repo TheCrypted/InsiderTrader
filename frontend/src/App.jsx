@@ -29,17 +29,20 @@ function App() {
 
         {/* Bottom Half - Two Column Layout */}
         <div className="container mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 pb-12 pt-8 gap-0">
+          <div className="flex gap-8 pb-12 pt-8">
           {/* Left Grid - Congressmen */}
-          <div className="border-black">
+          <div className="flex-1 border-black">
             <CongressmanGrid />
           </div>
 
+          {/* Divider - vertical line in the middle */}
+          <div className="w-px bg-black"></div>
+
           {/* Right Grid - Stock Movements and Live News */}
-          <div className="border-black border-l flex flex-col">
+          <div className="flex-1 border-black flex flex-col">
             <StockGrid />
             {/* Live News - Below Stock Movements in same column */}
-            <div className="border-l border-black">
+            <div className="border-t border-black">
               <LiveNews />
             </div>
           </div>

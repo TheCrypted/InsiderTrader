@@ -110,7 +110,7 @@ export default function LiveNews() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6 px-6 pt-6">Live News</h2>
-      <div className="space-y-0 border-t border-black border-r">
+      <div className="space-y-0 border-t border-black">
         {NEWS_ARTICLES.map((article, index) => {
           // Use all tags, dynamically sized
           const displayTags = article.tags.length > 0 ? article.tags : [];

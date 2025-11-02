@@ -7,9 +7,12 @@ const CONGRESSMAN_IDS = [
   "P000197", // Nancy Pelosi
   "G000596", // Marjorie Taylor Greene
   "V000137", // J. D. Vance
-  "H001089", // Josh Hawley
+  "M001236", // Tim Moore
   "D000216", // Ro Khanna
-  "S001184" // Rick Scott
+  "S001184", // Rick Scott
+  "M001243", // David McCormick
+  "M001190", // Markwayne Mullin
+  "W000802"  // Sheldon Whitehouse
 ]
 
 export default function CongressmanGrid() {
