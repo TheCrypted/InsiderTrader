@@ -5,7 +5,7 @@ import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
-import { getPolymarketOddsForBill, getBillRelevantStocks, getBillInfo, getCongressman } from '../utils/api';
+import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory } from '../utils/api';
 import { useStockLogo } from '../hooks/useImage';
 
 // Component to display stock logo with ticker fallback
@@ -53,6 +53,37 @@ const LegislationBetPage = () => {
   const [legislation, setLegislation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [stocksLoading, setStocksLoading] = useState(false); // Loading state for affected stocks from /match API
+  const [hasPolymarketData, setHasPolymarketData] = useState(false); // Whether bill exists in Polymarket
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false); // Loading state for price history
+
+  // Helper function to build correct Congress.gov URL
+  const buildCongressGovUrl = (billId) => {
+    if (!billId) return '#';
+    
+    // Parse bill ID (e.g., "H.R.1234", "HR.1234", "S.567", "SJRES.88")
+    const normalized = billId.toUpperCase().replace(/\./g, '');
+    const billNumber = billId.replace(/[^0-9]/g, '');
+    
+    let billTypePath = 'house-bill';
+    if (normalized.startsWith('S') && !normalized.startsWith('SJRES') && !normalized.startsWith('SRES') && !normalized.startsWith('SCONRES')) {
+      billTypePath = 'senate-bill';
+    } else if (normalized.startsWith('SJRES')) {
+      billTypePath = 'senate-joint-resolution';
+    } else if (normalized.startsWith('HJRES')) {
+      billTypePath = 'house-joint-resolution';
+    } else if (normalized.startsWith('SRES')) {
+      billTypePath = 'senate-resolution';
+    } else if (normalized.startsWith('HRES')) {
+      billTypePath = 'house-resolution';
+    } else if (normalized.startsWith('SCONRES')) {
+      billTypePath = 'senate-concurrent-resolution';
+    } else if (normalized.startsWith('HCONRES')) {
+      billTypePath = 'house-concurrent-resolution';
+    }
+    // Default is 'house-bill' for HR, H.R., etc.
+    
+    return `https://www.congress.gov/bill/119th-congress/${billTypePath}/${billNumber}`;
+  };
 
   // Generate historical price data
   const generatePriceHistory = (days = 30) => {
@@ -115,6 +146,20 @@ const LegislationBetPage = () => {
         // If timeout, use graphBill data immediately
         if (!legislationData && graphBill) {
           console.log('Using graphBill data due to timeout');
+          
+          // Check if bill exists in Polymarket
+          const polymarketBills = await getPolymarketBills().catch(() => []);
+          const normalizeBillId = (id) => {
+            if (!id) return null;
+            return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+          };
+          const billIdNormalized = normalizeBillId(billId);
+          const existsInPolymarket = polymarketBills.some(bill => {
+            const bId = normalizeBillId(bill.bill_id || bill.bill);
+            return bId === billIdNormalized;
+          });
+          setHasPolymarketData(existsInPolymarket);
+          
           const quickTitle = graphBill.title || `${billId} - Legislation`;
           const quickLegislation = {
             id: billId,
@@ -132,7 +177,7 @@ const LegislationBetPage = () => {
             marketCap: null,
             resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             resolutionCriteria: 'This market resolves based on bill passage.',
-            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            billUrl: buildCongressGovUrl(billId),
             committees: graphBill.committees || [],
             date: graphBill.date || new Date().toISOString().split('T')[0],
             affectedStocks: [],
@@ -144,19 +189,37 @@ const LegislationBetPage = () => {
               averageExcessReturn: 0
             },
             aiSummary: null,
+            priceHistory: existsInPolymarket ? generatePriceHistory(30) : [],
           };
           
-          setLegislation({
-            ...quickLegislation,
-            priceHistory: generatePriceHistory(30),
-          });
+          setLegislation(quickLegislation);
           
           // Continue fetching in background and update when ready
           legislationDataPromise.then((fullData) => {
             if (fullData) {
-              setLegislation({
-                ...fullData,
-                priceHistory: generatePriceHistory(30),
+              // Re-check Polymarket when full data arrives
+              getPolymarketBills().then(polymarketBills => {
+                const normalizeBillId = (id) => {
+                  if (!id) return null;
+                  return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+                };
+                const billIdNormalized = normalizeBillId(billId);
+                const existsInPolymarket = polymarketBills.some(bill => {
+                  const bId = normalizeBillId(bill.bill_id || bill.bill);
+                  return bId === billIdNormalized;
+                });
+                setHasPolymarketData(existsInPolymarket);
+                // Price history will be fetched separately via useEffect
+                setLegislation({
+                  ...fullData,
+                  priceHistory: [], // Will be fetched from Polymarket if available
+                });
+              }).catch(() => {
+                setHasPolymarketData(false);
+                setLegislation({
+                  ...fullData,
+                  priceHistory: [],
+                });
               });
             }
           }).catch(() => {
@@ -190,7 +253,7 @@ const LegislationBetPage = () => {
             marketCap: null,
             resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             resolutionCriteria: 'This market resolves based on bill passage.',
-            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            billUrl: buildCongressGovUrl(billId),
             committees: graphBill?.committees || [],
             date: graphBill?.date || new Date().toISOString().split('T')[0],
             affectedStocks: [],
@@ -202,8 +265,27 @@ const LegislationBetPage = () => {
               averageExcessReturn: 0
             },
             aiSummary: null,
-            priceHistory: generatePriceHistory(30),
+            priceHistory: [], // Will be set after Polymarket check
           };
+          
+          // Check if bill exists in Polymarket and update state
+          getPolymarketBills().then(polymarketBills => {
+            const normalizeBillId = (id) => {
+              if (!id) return null;
+              return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+            };
+            const billIdNormalized = normalizeBillId(billId);
+            const existsInPolymarket = polymarketBills.some(bill => {
+              const bId = normalizeBillId(bill.bill_id || bill.bill);
+              return bId === billIdNormalized;
+            });
+            setHasPolymarketData(existsInPolymarket);
+            // Price history will be fetched separately via useEffect
+          }).catch(() => {
+            setHasPolymarketData(false);
+          });
+          
+          setLegislation(defaultLegislation);
           
           // Try to fetch bill info, Polymarket odds, and stocks in background (non-blocking)
           Promise.all([
@@ -262,6 +344,19 @@ const LegislationBetPage = () => {
           setLoading(false);
           return;
         }
+        
+        // Check if bill exists in Polymarket bills first
+        const polymarketBills = await getPolymarketBills().catch(() => []);
+        const normalizeBillId = (id) => {
+          if (!id) return null;
+          return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+        };
+        const billIdNormalized = normalizeBillId(billId);
+        const existsInPolymarket = polymarketBills.some(bill => {
+          const bId = normalizeBillId(bill.bill_id || bill.bill);
+          return bId === billIdNormalized;
+        });
+        setHasPolymarketData(existsInPolymarket);
         
         // Fetch Polymarket odds and bill info from Congress API in parallel
         const [polymarketOdds, billInfo] = await Promise.all([
@@ -329,7 +424,7 @@ const LegislationBetPage = () => {
           marketCap: polymarketOdds ? (legislationData?.marketCap || null) : null,
           resolutionDate: legislationData?.resolutionDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           resolutionCriteria: legislationData?.resolutionCriteria || 'This market resolves based on bill passage.',
-          billUrl: legislationData?.billUrl || `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+          billUrl: billInfo?.url || buildCongressGovUrl(billId),
           committees: legislationData?.committees || graphBill?.committees || [],
           date: graphBill?.date || legislationData?.date || new Date().toISOString().split('T')[0],
           affectedStocks: stocksToUse,
@@ -341,7 +436,7 @@ const LegislationBetPage = () => {
             averageExcessReturn: 0
           }, // NO MOCK DATA - always zeros (real data would come from API)
           aiSummary: legislationData?.aiSummary || null,
-          priceHistory: generatePriceHistory(30),
+          priceHistory: [], // Will be fetched from Polymarket if available
         };
         
         setLegislation(completeLegislation);
@@ -351,6 +446,19 @@ const LegislationBetPage = () => {
         // Try to get from graphBills as fallback
         const { graphBills } = await import('../utils/graphData');
         const graphBill = graphBills.find(b => b.id === billId);
+        
+        // Check if bill exists in Polymarket
+        const polymarketBills = await getPolymarketBills().catch(() => []);
+        const normalizeBillId = (id) => {
+          if (!id) return null;
+          return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+        };
+        const billIdNormalized = normalizeBillId(billId);
+        const existsInPolymarket = polymarketBills.some(bill => {
+          const bId = normalizeBillId(bill.bill_id || bill.bill);
+          return bId === billIdNormalized;
+        });
+        setHasPolymarketData(existsInPolymarket);
         
         // Try to fetch bill info to get actual status (in background, non-blocking)
         const billInfo = await getBillInfo(billId).catch(() => null);
@@ -392,7 +500,7 @@ const LegislationBetPage = () => {
             marketCap: null,
             resolutionDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
             resolutionCriteria: 'This market resolves based on bill passage.',
-            billUrl: `https://www.congress.gov/bill/119th-congress/${billId.includes('H') || billId.includes('HR') ? 'house-bill' : 'senate-bill'}/${billId.replace(/[^0-9]/g, '')}`,
+            billUrl: buildCongressGovUrl(billId),
             committees: graphBill.committees || [],
             date: graphBill.date || new Date().toISOString().split('T')[0],
             affectedStocks: [],
@@ -404,12 +512,25 @@ const LegislationBetPage = () => {
               averageExcessReturn: 0
             },
             aiSummary: null,
-            priceHistory: generatePriceHistory(30),
+            priceHistory: [], // Will be fetched from Polymarket if available
           });
         } else {
           // Final fallback: use mock data but fetch bill info to get actual status
           const { legislationDetails } = await import('../utils/legislationData');
           const fallbackData = legislationDetails[billId] || legislationDetails['H.R.1234'];
+          
+          // Check if bill exists in Polymarket
+          const polymarketBills = await getPolymarketBills().catch(() => []);
+          const normalizeBillId = (id) => {
+            if (!id) return null;
+            return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+          };
+          const billIdNormalized = normalizeBillId(billId);
+          const existsInPolymarket = polymarketBills.some(bill => {
+            const bId = normalizeBillId(bill.bill_id || bill.bill);
+            return bId === billIdNormalized;
+          });
+          setHasPolymarketData(existsInPolymarket);
           
           // Try to fetch bill info to get actual status
           const billInfo = await getBillInfo(billId).catch(() => null);
@@ -445,7 +566,8 @@ const LegislationBetPage = () => {
             yesPrice: yesPrice,
             noPrice: noPrice,
             showOdds: showOdds,
-            priceHistory: generatePriceHistory(30)
+            billUrl: billInfo?.url || buildCongressGovUrl(billId),
+            priceHistory: [] // Will be fetched from Polymarket if available
           });
         }
       } finally {
@@ -537,6 +659,82 @@ const LegislationBetPage = () => {
       fetchSponsor();
     }
   }, [legislation?.sponsorBioguideId, legislation?.id]);
+
+  // Fetch real price history from Polymarket when bill has Polymarket data
+  useEffect(() => {
+    const fetchRealPriceHistory = async () => {
+      if (!legislation?.id || !hasPolymarketData) {
+        return;
+      }
+      
+      // Map time range to Polymarket interval
+      const intervalMap = {
+        '1d': '1d',
+        '7d': '1w',
+        '30d': 'max', // Use max for 30d to get all available history
+        'all': 'max',
+      };
+      
+      const interval = intervalMap[timeRange] || '1d';
+      
+      console.log(`Fetching real price history for ${legislation.id} with interval ${interval}...`);
+      
+      // Set loading state
+      setPriceHistoryLoading(true);
+      
+      try {
+        const history = await getBillPriceHistory(legislation.id, interval);
+        
+        if (history && history.length > 0) {
+          console.log(`✓ Fetched ${history.length} price history points for ${legislation.id}`);
+          
+          // Filter based on timeRange if needed (for frontend filtering)
+          let filteredHistory = history;
+          if (timeRange !== 'all') {
+            const today = new Date();
+            const ranges = {
+              '1d': 1,
+              '7d': 7,
+              '30d': 30,
+            };
+            const days = ranges[timeRange] || 30;
+            const cutoffDate = new Date(today);
+            cutoffDate.setDate(cutoffDate.getDate() - days);
+            
+            filteredHistory = history.filter(item => {
+              return new Date(item.date) >= cutoffDate;
+            });
+          }
+          
+          setLegislation(prev => ({
+            ...prev,
+            priceHistory: filteredHistory,
+          }));
+        } else {
+          console.log(`No price history returned for ${legislation.id}, using fallback`);
+          // Fallback to generated data if API returns empty
+          setLegislation(prev => ({
+            ...prev,
+            priceHistory: generatePriceHistory(timeRange === 'all' ? 90 : (timeRange === '1d' ? 1 : timeRange === '7d' ? 7 : 30)),
+          }));
+        }
+      } catch (error) {
+        console.warn(`Error fetching price history for ${legislation.id}, using fallback:`, error);
+        // Fallback to generated data on error
+        setLegislation(prev => ({
+          ...prev,
+          priceHistory: generatePriceHistory(timeRange === 'all' ? 90 : (timeRange === '1d' ? 1 : timeRange === '7d' ? 7 : 30)),
+        }));
+      } finally {
+        // Clear loading state
+        setPriceHistoryLoading(false);
+      }
+    };
+    
+    if (legislation && hasPolymarketData) {
+      fetchRealPriceHistory();
+    }
+  }, [legislation?.id, hasPolymarketData, timeRange]);
 
   // Filter price history based on time range
   const getFilteredHistory = () => {
@@ -707,7 +905,8 @@ const LegislationBetPage = () => {
               </div>
             </div>
 
-            {/* Historical Price Chart */}
+            {/* Historical Price Chart - Only show if bill has Polymarket data */}
+            {hasPolymarketData && (
             <div className="bg-white border-b border-black p-6 relative" ref={chartContainerRef}>
               <div className="flex items-center justify-between mb-4 border-b border-black pb-3">
                 <h3 className="text-lg font-semibold text-gray-900">Price History</h3>
@@ -728,7 +927,15 @@ const LegislationBetPage = () => {
                 </div>
               </div>
               
-              {priceHistory.length > 0 && (
+              {/* Show loading spinner while fetching price history */}
+              {priceHistoryLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="flex flex-col items-center gap-4">
+                    <LoadingSpinner />
+                    <p className="text-sm text-gray-600">Loading price history...</p>
+                  </div>
+                </div>
+              ) : priceHistory.length > 0 ? (
                 <div className="relative">
                   <ResponsiveContainer width="100%" height={350}>
                     <LineChart 
@@ -843,8 +1050,15 @@ const LegislationBetPage = () => {
                     </div>
                   )}
                 </div>
+              ) : (
+                // Show empty state if no price history available and not loading
+                <div className="flex items-center justify-center py-20">
+                  <p className="text-sm text-gray-500">No price history available</p>
+                </div>
               )}
               
+              {/* Legend - only show if we have data */}
+              {priceHistory.length > 0 && (
               <div className="flex gap-6 mt-4 text-xs border-t border-black pt-4">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 border border-black" style={{ backgroundColor: '#22c55e' }}></div>
@@ -855,9 +1069,12 @@ const LegislationBetPage = () => {
                   <span className="text-gray-600">NO Price</span>
                 </div>
               </div>
+              )}
             </div>
+            )}
 
-            {/* Market Prediction Cards - Information Only */}
+            {/* Market Prediction Cards - Information Only - Only show if bill has Polymarket data */}
+            {hasPolymarketData && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-black">
               {/* YES Outcome */}
               <div className="bg-white p-6 border-r border-black">
@@ -927,6 +1144,7 @@ const LegislationBetPage = () => {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Congressmen Supporters Section */}
             <div className="bg-white border-t border-black p-6">

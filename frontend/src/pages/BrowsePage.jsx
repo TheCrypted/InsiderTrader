@@ -6,6 +6,8 @@ import { legislationDetails } from '../utils/legislationData';
 import { getAllRepresentativesBasic, loadTradesForBatch, getRecentBills, getPolymarketBills } from '../utils/api';
 
 const ITEMS_PER_PAGE = 30; // Number of congressmen to load at a time
+const BILLS_PER_PAGE = 20; // Number of bills to display at a time
+const BILLS_FETCH_SIZE = 30; // Number of bills to fetch from API at a time
 
 const BrowsePage = () => {
   const [activeTab, setActiveTab] = useState('congressmen'); // 'congressmen' or 'legislation'
@@ -18,10 +20,14 @@ const BrowsePage = () => {
   const [displayedCount, setDisplayedCount] = useState(ITEMS_PER_PAGE); // How many to show
   const [loadingCongressmen, setLoadingCongressmen] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [recentBills, setRecentBills] = useState([]); // Bills from API
+  const [recentBills, setRecentBills] = useState([]); // Bills from API (all loaded)
+  const [displayedBillsCount, setDisplayedBillsCount] = useState(BILLS_PER_PAGE); // How many bills to show
+  const [totalBillsCount, setTotalBillsCount] = useState(0); // Total bills available from API
+  const [loadingMoreBills, setLoadingMoreBills] = useState(false);
   const [polymarketOdds, setPolymarketOdds] = useState({}); // Map of bill_id -> odds
   const [loadingLegislation, setLoadingLegislation] = useState(true);
   const observerTarget = useRef(null);
+  const legislationObserverTarget = useRef(null);
 
   // Fetch basic representative info (fast)
   useEffect(() => {
@@ -44,7 +50,7 @@ const BrowsePage = () => {
     fetchCongressmenBasic();
   }, []);
 
-  // Fetch bills: First /bills (Polymarket bills with betting info), then /recent_bills (additional bills)
+  // Fetch bills: First /bills (Polymarket bills with betting info), then /recent_bills (additional bills with lazy loading)
   useEffect(() => {
     const fetchBills = async () => {
       try {
@@ -60,6 +66,7 @@ const BrowsePage = () => {
           bill_id: bill.bill_id || bill.bill,
           title: bill.info?.title || bill.bill_id || bill.bill,
           latest_action: bill.info?.latest_action || {},
+          status: bill.info?.status || null, // Include status from info field
           introduced_date: bill.info?.introduced_date,
           policy_area: bill.info?.policy_area,
           sponsors: bill.info?.sponsors || [],
@@ -78,10 +85,12 @@ const BrowsePage = () => {
           if (!billId) return;
           
           // Store with original format
+          // yes_percent from API is already a percentage (e.g., 52.0 = 52%)
+          const yesPercent = bill.yes_percent !== undefined ? bill.yes_percent : 50;
           oddsMap[billId] = {
             ...bill,
-            yes_percentage: bill.yes_percent || 50,
-            no_percentage: bill.yes_percent !== undefined ? (100 - bill.yes_percent) : 50,
+            yes_percentage: yesPercent, // Already a percentage (52.0 = 52%)
+            no_percentage: 100 - yesPercent, // Calculate NO percentage
           };
           
           // Normalize and store multiple formats for matching
@@ -113,8 +122,9 @@ const BrowsePage = () => {
         setPolymarketOdds(oddsMap);
         
         // Step 2: Fetch additional bills from /recent_bills endpoint
-        console.log('Step 2: Fetching additional bills from /recent_bills endpoint...');
-        const recentBillsResponse = await getRecentBills();
+        // Note: API only returns max 10 bills regardless of limit parameter
+        console.log('Step 2: Fetching bills from /recent_bills endpoint...');
+        const recentBillsResponse = await getRecentBills(10, 0);
         
         // Normalize bill IDs for comparison
         const normalizeBillId = (id) => {
@@ -128,7 +138,7 @@ const BrowsePage = () => {
         );
         
         // Filter out bills that are already in Polymarket bills
-        const additionalBills = recentBillsResponse
+        const additionalBills = recentBillsResponse.bills
           .filter(bill => {
             const billId = normalizeBillId(bill.bill_id || bill.id);
             return billId && !polymarketBillIds.has(billId);
@@ -137,6 +147,7 @@ const BrowsePage = () => {
             bill_id: bill.bill_id || bill.id,
             title: bill.title,
             latest_action: bill.latest_action || {},
+            status: bill.status || null, // Include status if available
             introduced_date: bill.introduced_date,
             policy_area: bill.policy_area,
             sponsors: bill.sponsors || [],
@@ -145,25 +156,34 @@ const BrowsePage = () => {
             hasPolymarketOdds: false, // Mark that these don't have Polymarket odds
           }));
         
-        console.log(`Fetched ${additionalBills.length} additional bills from /recent_bills (excluding duplicates)`);
+        console.log(`Fetched ${additionalBills.length} additional bills from /recent_bills (first batch, excluding duplicates)`);
+        
+        // Set total count (Polymarket bills + API total count, minus duplicates)
+        setTotalBillsCount(polymarketBills.length + recentBillsResponse.totalCount);
         
         // Combine: Polymarket bills first (with betting info), then additional bills
         const allBills = [...polymarketBills, ...additionalBills];
         
-        console.log(`Total bills: ${allBills.length} (${polymarketBills.length} with Polymarket odds, ${additionalBills.length} additional)`);
+        console.log(`Total bills loaded: ${allBills.length} (${polymarketBills.length} with Polymarket odds, ${additionalBills.length} additional)`);
         
         if (allBills.length > 0) {
           setRecentBills(allBills);
-          console.log(`Set ${allBills.length} bills (Polymarket first, then recent bills)`);
+          // Display first batch (Polymarket bills + first batch of recent bills, up to BILLS_PER_PAGE)
+          const initialDisplayCount = Math.min(BILLS_PER_PAGE, allBills.length);
+          setDisplayedBillsCount(initialDisplayCount);
+          console.log(`Set ${allBills.length} bills, displaying first ${initialDisplayCount}`);
         } else {
           console.log('No bills received, will use graphBills fallback');
           setRecentBills([]);
+          setDisplayedBillsCount(0);
         }
       } catch (error) {
         console.error('Error fetching bills:', error);
         // Fallback to empty array, will use graphBills below
         setRecentBills([]);
         setPolymarketOdds({});
+        setDisplayedBillsCount(0);
+        setTotalBillsCount(0);
       } finally {
         setLoadingLegislation(false);
       }
@@ -175,6 +195,8 @@ const BrowsePage = () => {
       // Reset when switching away from legislation tab
       setRecentBills([]);
       setPolymarketOdds({});
+      setDisplayedBillsCount(BILLS_PER_PAGE);
+      setTotalBillsCount(0);
       setLoadingLegislation(false);
     }
   }, [activeTab]);
@@ -283,6 +305,203 @@ const BrowsePage = () => {
     };
   }, [activeTab, displayedCount, allCongressmenBasic.length]);
 
+  // Load more bills when scrolling
+  const loadMoreBills = useCallback(async () => {
+    if (loadingMoreBills) {
+      console.log('Already loading more bills, skipping...');
+      return;
+    }
+    
+    console.log('loadMoreBills called', {
+      displayedBillsCount,
+      recentBillsLength: recentBills.length,
+      totalBillsCount,
+      loadingMoreBills,
+    });
+    
+    // If we have more bills loaded than displayed, just show more
+    if (displayedBillsCount < recentBills.length) {
+      const nextDisplayCount = Math.min(displayedBillsCount + BILLS_PER_PAGE, recentBills.length);
+      console.log(`Showing more loaded bills: ${displayedBillsCount} -> ${nextDisplayCount}`);
+      setDisplayedBillsCount(nextDisplayCount);
+      return;
+    }
+    
+    // Check if we need to fetch more bills from API
+    const polymarketBillsCount = recentBills.filter(b => b.hasPolymarketOdds).length;
+    const additionalBillsCount = recentBills.filter(b => !b.hasPolymarketOdds).length;
+    const currentOffset = additionalBillsCount;
+    const totalAvailableFromAPI = totalBillsCount > 0 ? totalBillsCount - polymarketBillsCount : 0;
+    
+    console.log('Checking if we need to fetch more bills', {
+      currentOffset,
+      totalAvailableFromAPI,
+      additionalBillsCount,
+      polymarketBillsCount,
+    });
+    
+    // If we've displayed all loaded bills and there might be more available from API
+    if (displayedBillsCount >= recentBills.length && (totalAvailableFromAPI === 0 || currentOffset < totalAvailableFromAPI)) {
+      setLoadingMoreBills(true);
+      try {
+        // Note: API only returns max 10 bills regardless of limit parameter
+        console.log(`Fetching more bills from API: offset=${currentOffset}, limit=10 (API max), totalAvailable=${totalAvailableFromAPI}`);
+        const response = await getRecentBills(10, currentOffset);
+        
+        console.log(`API response: ${response.bills.length} bills, totalCount=${response.totalCount}`);
+        
+        // Normalize bill IDs for comparison
+        const normalizeBillId = (id) => {
+          if (!id) return null;
+          return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+        };
+        
+        // Get existing bill IDs (normalized) to avoid duplicates
+        const existingBillIds = new Set(
+          recentBills.map(b => normalizeBillId(b.bill_id))
+        );
+        
+        // Filter out bills that are already loaded
+        const newBills = response.bills
+          .filter(bill => {
+            const billId = normalizeBillId(bill.bill_id || bill.id);
+            return billId && !existingBillIds.has(billId);
+          })
+          .map(bill => ({
+            bill_id: bill.bill_id || bill.id,
+            title: bill.title,
+            latest_action: bill.latest_action || {},
+            status: bill.status || null, // Include status if available
+            introduced_date: bill.introduced_date,
+            policy_area: bill.policy_area,
+            sponsors: bill.sponsors || [],
+            cosponsors_count: bill.cosponsors_count || 0,
+            url: bill.url,
+            hasPolymarketOdds: false,
+          }));
+        
+        console.log(`Filtered to ${newBills.length} new bills (after removing ${response.bills.length - newBills.length} duplicates)`);
+        
+        if (newBills.length > 0) {
+          // Add new bills to the list
+          setRecentBills(prev => {
+            const updated = [...prev, ...newBills];
+            console.log(`Updated recentBills: ${prev.length} -> ${updated.length}`);
+            return updated;
+          });
+          
+          // Display the new bills immediately
+          setDisplayedBillsCount(prev => {
+            const updated = prev + Math.min(newBills.length, BILLS_PER_PAGE);
+            console.log(`Updated displayedBillsCount: ${prev} -> ${updated}`);
+            return updated;
+          });
+          
+          // Note: API only returns 10 bills max, so totalCount might not reflect all available bills
+          // Update total count if we got new info from API
+          if (response.totalCount > 0 && response.totalCount > totalBillsCount) {
+            setTotalBillsCount(response.totalCount + polymarketBillsCount);
+          }
+        } else {
+          // No more bills to load - might have reached the end
+          // Note: Since API only returns 10 bills, we may have exhausted available bills
+          console.log('No new bills loaded from API (may have reached the end)');
+          if (response.totalCount > 0 && currentOffset >= response.totalCount) {
+            console.log('Reached the end of available bills');
+          }
+        }
+      } catch (error) {
+        console.error('Error loading more bills:', error);
+      } finally {
+        setLoadingMoreBills(false);
+      }
+    } else {
+      console.log('No more bills to load', {
+        displayedBillsCount,
+        recentBillsLength: recentBills.length,
+        currentOffset,
+        totalAvailableFromAPI,
+      });
+    }
+  }, [recentBills, displayedBillsCount, totalBillsCount, loadingMoreBills]);
+
+  // Intersection Observer for legislation infinite scroll
+  useEffect(() => {
+    // Only set up observer if:
+    // 1. We're on the legislation tab
+    // 2. Initial loading is complete
+    // 3. We haven't displayed all loaded bills OR we haven't reached the total available count
+    const hasMoreToShow = displayedBillsCount < recentBills.length || 
+                          (totalBillsCount > 0 && recentBills.length < totalBillsCount) ||
+                          (totalBillsCount === 0 && recentBills.length > 0); // If we don't know total, assume more might be available
+    
+    console.log('Setting up legislation observer', {
+      activeTab,
+      loadingLegislation,
+      hasMoreToShow,
+      displayedBillsCount,
+      recentBillsLength: recentBills.length,
+      totalBillsCount,
+    });
+    
+    if (activeTab !== 'legislation' || loadingLegislation || !hasMoreToShow) {
+      console.log('Skipping observer setup', { 
+        activeTab, 
+        loadingLegislation, 
+        hasMoreToShow,
+      });
+      return;
+    }
+
+    let observer = null;
+    let timeoutId = null;
+
+    timeoutId = setTimeout(() => {
+      const currentTarget = legislationObserverTarget.current;
+      if (!currentTarget) {
+        console.warn('Legislation observer target not found in DOM');
+        return;
+      }
+
+      observer = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry && entry.isIntersecting && !loadingMoreBills) {
+            console.log('⚠️ Observer triggered: Loading more bills...', {
+              displayedBillsCount,
+              totalLoaded: recentBills.length,
+              totalAvailable: totalBillsCount,
+              isIntersecting: entry.isIntersecting,
+            });
+            loadMoreBills();
+          }
+        },
+        {
+          threshold: 0.1,
+          rootMargin: '200px',
+        }
+      );
+
+      observer.observe(currentTarget);
+      console.log('✓ Legislation observer attached to target', {
+        displayedBillsCount,
+        totalLoaded: recentBills.length,
+        totalAvailable: totalBillsCount,
+        hasTarget: !!currentTarget,
+      });
+    }, 100);
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (observer) {
+        observer.disconnect();
+        console.log('Legislation observer disconnected');
+      }
+    };
+  }, [activeTab, displayedBillsCount, recentBills.length, totalBillsCount, loadingLegislation, loadingMoreBills, loadMoreBills]);
+
   // Prepare congressmen data - use loaded congressmen with trades, merge with remaining basic data
   const allCongressmen = useMemo(() => {
     // Start with loaded congressmen (with trades)
@@ -328,17 +547,45 @@ const BrowsePage = () => {
         billId = billId.replace(/^HR\./, 'H.R.');
       }
       
-      console.log('Processing bill:', { original: originalBillId, normalized: billId, fromAPI: !!bill.bill_id });
+      console.log('Processing bill:', { original: originalBillId, normalized: billId, fromAPI: !!bill.bill_id, hasPolymarketOdds: bill.hasPolymarketOdds });
       
       // Try to find matching graphBill for additional data
       // Check both normalized and original format
       const graphBill = graphBills.find(b => b.id === billId || b.id === originalBillId);
       const baseDetails = legislationDetails[billId] || legislationDetails[originalBillId];
       
-      // Determine sector - from graphBill or infer from title
-      let sector = graphBill?.sector || 'General';
-      if (!graphBill) {
-        // Infer sector from title
+      // Determine sector - prioritize API data (policy_area), then graphBill, then infer
+      let sector = 'General';
+      
+      // First try: policy_area from API
+      if (bill.policy_area) {
+        const policyArea = bill.policy_area.toLowerCase();
+        if (policyArea.includes('technology') || policyArea.includes('science') || policyArea.includes('computing')) {
+          sector = 'Technology';
+        } else if (policyArea.includes('health') || policyArea.includes('medical')) {
+          sector = 'Healthcare';
+        } else if (policyArea.includes('energy') || policyArea.includes('environment') || policyArea.includes('climate')) {
+          sector = 'Energy';
+        } else if (policyArea.includes('finance') || policyArea.includes('banking') || policyArea.includes('financial')) {
+          sector = 'Financials';
+        } else if (policyArea.includes('defense') || policyArea.includes('military')) {
+          sector = 'Defense';
+        } else if (policyArea.includes('business') || policyArea.includes('commerce')) {
+          sector = 'Business';
+        } else if (policyArea.includes('education')) {
+          sector = 'Education';
+        } else if (policyArea.includes('housing')) {
+          sector = 'Housing';
+        }
+      }
+      
+      // Second try: graphBill sector
+      if (sector === 'General' && graphBill?.sector) {
+        sector = graphBill.sector;
+      }
+      
+      // Third try: infer from title
+      if (sector === 'General') {
         const titleLower = (bill.title || '').toLowerCase();
         if (titleLower.includes('tech') || titleLower.includes('digital') || titleLower.includes('cyber') || titleLower.includes('ai')) {
           sector = 'Technology';
@@ -354,14 +601,23 @@ const BrowsePage = () => {
           sector = 'Housing';
         } else if (titleLower.includes('business') || titleLower.includes('small business')) {
           sector = 'Business';
+        } else if (titleLower.includes('finance') || titleLower.includes('banking')) {
+          sector = 'Financials';
         }
       }
       
-      // Get cosponsors from API bill info, graphBill, or estimate
-      const cosponsors = bill.info?.cosponsors_count || bill.cosponsors_count || graphBill?.cosponsors || (baseDetails?.cosponsors) || 0;
+      // Get cosponsors - prioritize API data
+      const cosponsors = bill.info?.cosponsors_count ?? 
+                        bill.cosponsors_count ?? 
+                        graphBill?.cosponsors ?? 
+                        (baseDetails?.cosponsors) ?? 
+                        0;
       
-      // Get date from API latest_action or graphBill
-      const date = bill.latest_action?.date || graphBill?.date || new Date().toISOString().split('T')[0];
+      // Get date - prioritize latest_action.date (most reliable for /recent_bills), then introduced_date, then graphBill
+      let date = bill.latest_action?.date || 
+                 bill.introduced_date || 
+                 graphBill?.date || 
+                 new Date().toISOString().split('T')[0];
       
       // Get Polymarket odds if available
       // Try multiple formats for matching
@@ -389,20 +645,68 @@ const BrowsePage = () => {
         console.log(`Found Polymarket odds for ${originalBillId}: Yes ${yesOdds}%, No ${noOdds}%`);
       }
       
-      // Get status from graphBill or infer
-      let status = graphBill?.status || 'In Committee';
-      if (bill.latest_action?.text) {
+      // Get status - prioritize API status from bill.info (for Polymarket bills)
+      // Then check bill.status (for recent_bills API), then graphBill, then infer from latest_action, then default
+      let status = bill.info?.status || 
+                   bill.status ||
+                   graphBill?.status || 
+                   null;
+      
+      // If no status from API, try to determine from latest_action text
+      if (!status && bill.latest_action?.text) {
         const actionText = bill.latest_action.text.toLowerCase();
-        if (actionText.includes('passed') || actionText.includes('enacted')) {
+        if (actionText.includes('passed') && actionText.includes('senate') && actionText.includes('house')) {
+          status = 'Passed Both Chambers';
+        } else if (actionText.includes('became public law') || actionText.includes('signed by president') || actionText.includes('enacted')) {
+          status = 'Became Law';
+        } else if (actionText.includes('sent to president') || actionText.includes('presented to president')) {
+          status = 'To President';
+        } else if (actionText.includes('passed senate') || actionText.includes('senate passed')) {
+          status = 'Passed Senate';
+        } else if (actionText.includes('passed house') || actionText.includes('house passed')) {
           status = 'Passed House';
+        } else if (actionText.includes('placed on') && (actionText.includes('calendar') || actionText.includes('union calendar'))) {
+          status = 'On Calendar';
+        } else if (actionText.includes('motion to proceed') && actionText.includes('senate')) {
+          status = 'Passed House'; // In Senate after passing House
+        } else if (actionText.includes('received in the senate')) {
+          status = 'Passed House';
+        } else if (actionText.includes('in senate') && (actionText.includes('consideration') || actionText.includes('motion'))) {
+          status = 'In Senate';
+        } else if (actionText.includes('ordered to be reported') || (actionText.includes('reported') && actionText.includes('committee'))) {
+          status = 'Reported from Committee';
+        } else if (actionText.includes('vetoed') || actionText.includes('veto')) {
+          status = 'Vetoed';
         } else if (actionText.includes('failed') || actionText.includes('rejected')) {
           status = 'Failed';
+        } else if (actionText.includes('introduced')) {
+          status = 'Introduced';
+        } else if (actionText.includes('referred to') || actionText.includes('committee')) {
+          status = 'In Committee';
         }
       }
       
+      // Final fallback
+      if (!status) {
+        status = 'Pending';
+      }
+      
+      // Determine if bill is bettable (has Polymarket odds)
+      const isBettable = bill.hasPolymarketOdds || false;
+      
       // Use Polymarket odds if available, otherwise calculate based on cosponsors
+      // For non-bettable bills, passingOdds/failingOdds are not meaningful
+      // yesOdds/noOdds from Polymarket are already percentages (e.g., 52.0 = 52%), convert to decimal for display
       const passingOdds = yesOdds !== null ? yesOdds / 100 : (baseDetails?.yesPrice || (cosponsors > 40 ? 0.65 : cosponsors > 25 ? 0.45 : 0.30));
       const failingOdds = noOdds !== null ? noOdds / 100 : (baseDetails?.noPrice || (cosponsors > 40 ? 0.35 : cosponsors > 25 ? 0.55 : 0.70));
+      
+      // Determine if bill is passed or failed based on status
+      const isPassed = status === 'Passed House' || 
+                       status === 'Passed Senate' || 
+                       status === 'Passed Both Chambers' ||
+                       status === 'Became Law' ||
+                       status === 'To President';
+      const isFailed = status === 'Failed' || status === 'Vetoed';
       
       return {
         id: billId,
@@ -416,8 +720,9 @@ const BrowsePage = () => {
         polymarketYesOdds: yesOdds,
         polymarketNoOdds: noOdds,
         polymarketVolume: polymarketData?.volume || null,
-        isPassed: status === 'Passed House' || status === 'Passed Senate' || status === 'Enacted',
-        isFailed: status === 'Failed',
+        isBettable: isBettable,
+        isPassed: isPassed,
+        isFailed: isFailed,
         sector: sector,
         date: date,
         cosponsors: cosponsors,
@@ -427,6 +732,16 @@ const BrowsePage = () => {
       };
     });
   }, [recentBills, polymarketOdds]);
+
+  // Slice legislation to only show displayed bills (for lazy loading)
+  const displayedLegislation = useMemo(() => {
+    // If using recentBills (from API), only show up to displayedBillsCount
+    if (recentBills.length > 0) {
+      return allLegislation.slice(0, displayedBillsCount);
+    }
+    // Otherwise show all (from graphBills fallback)
+    return allLegislation;
+  }, [allLegislation, recentBills.length, displayedBillsCount]);
 
   // Filter congressmen
   const filteredCongressmen = useMemo(() => {
@@ -462,9 +777,9 @@ const BrowsePage = () => {
     return filtered;
   }, [allCongressmen, congressmanFilter, sortBy]);
 
-  // Filter legislation
+  // Filter and sort legislation
   const filteredLegislation = useMemo(() => {
-    let filtered = [...allLegislation];
+    let filtered = [...displayedLegislation];
 
     if (legislationFilter === 'passed') {
       filtered = filtered.filter(b => b.isPassed);
@@ -482,21 +797,20 @@ const BrowsePage = () => {
       filtered = filtered.filter(b => b.sector === 'Healthcare');
     }
 
-    // Sort
+    // Custom sort: Bettable bills first (sorted by date desc), then non-bettable bills (sorted by date desc)
     filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'odds':
-          return b.passingOdds - a.passingOdds;
-        case 'date':
-          return new Date(b.date) - new Date(a.date);
-        case 'title':
-        default:
-          return a.title.localeCompare(b.title);
-      }
+      // First, separate bettable and non-bettable bills
+      if (a.isBettable && !b.isBettable) return -1; // a (bettable) comes first
+      if (!a.isBettable && b.isBettable) return 1;  // b (bettable) comes first
+      
+      // Both are bettable or both are non-bettable - sort by date (most recent first)
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      return dateB - dateA; // Descending order (newest first)
     });
 
     return filtered;
-  }, [allLegislation, legislationFilter, sortBy]);
+  }, [displayedLegislation, legislationFilter, sortBy]);
 
   const formatCurrency = (value) => {
     if (value >= 1000000) {
@@ -833,21 +1147,61 @@ const BrowsePage = () => {
                 
                 {/* Right Section - Green or Red Background (20-25% width) */}
                 <div 
-                  className={`flex items-center justify-center p-6 ${bill.passingOdds >= 0.5 ? 'bg-green-50' : 'bg-red-50'}`} 
+                  className={`flex items-center justify-center p-6 ${
+                    bill.isBettable 
+                      ? (bill.passingOdds >= 0.5 ? 'bg-green-50' : 'bg-red-50')
+                      : (bill.isPassed ? 'bg-green-50' : bill.isFailed ? 'bg-red-50' : 'bg-gray-50')
+                  }`} 
                   style={{ width: '25%' }}
                 >
                   <div className="text-center">
-                    <div 
-                      className={`font-bold ${bill.passingOdds >= 0.5 ? 'text-green-700' : 'text-red-700'}`}
-                      style={{ fontSize: '3.5rem' }}
-                    >
-                      {(bill.passingOdds * 100).toFixed(1)}%
-                    </div>
+                    {bill.isBettable ? (
+                      // Show percentage for bettable bills
+                      <div 
+                        className={`font-bold ${bill.passingOdds >= 0.5 ? 'text-green-700' : 'text-red-700'}`}
+                        style={{ fontSize: '3.5rem' }}
+                      >
+                        {(bill.passingOdds * 100).toFixed(1)}%
+                      </div>
+                    ) : (
+                      // Show status for non-bettable bills - use actual status instead of PENDING
+                      <div 
+                        className={`font-bold ${
+                          bill.isPassed ? 'text-green-700' : bill.isFailed ? 'text-red-700' : 'text-gray-700'
+                        }`}
+                        style={{ 
+                          fontSize: bill.status && bill.status.length > 15 ? '1.2rem' : bill.status && bill.status.length > 10 ? '1.5rem' : '1.8rem', 
+                          lineHeight: '1.2' 
+                        }}
+                      >
+                        {bill.isPassed ? 'PASSED' : bill.isFailed ? 'FAILED' : (bill.status || 'PENDING').toUpperCase()}
+                      </div>
+                    )}
                   </div>
                 </div>
               </Link>
               );
                   })
+                )}
+                {/* Observer target for infinite scroll */}
+                {(displayedBillsCount < recentBills.length || 
+                  (totalBillsCount > 0 && recentBills.length < totalBillsCount) ||
+                  (totalBillsCount === 0 && recentBills.length > 0 && !loadingMoreBills)) && (
+                  <div 
+                    ref={legislationObserverTarget} 
+                    className="col-span-2 border-b border-black p-6 text-center"
+                    style={{ minHeight: '100px' }} // Ensure it's visible for the observer
+                  >
+                    {loadingMoreBills ? (
+                      <div className="text-gray-600">Loading more bills...</div>
+                    ) : (
+                      <div className="text-gray-400 text-sm">
+                        {displayedBillsCount < recentBills.length 
+                          ? `Showing ${displayedBillsCount} of ${recentBills.length} loaded bills. Scroll for more...`
+                          : 'Scroll for more bills...'}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}

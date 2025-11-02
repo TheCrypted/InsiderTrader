@@ -3,6 +3,7 @@ import os
 import re
 import time
 import math
+from datetime import datetime, timezone
 from typing import List, Tuple, Optional
 
 import numpy as np
@@ -506,19 +507,28 @@ def match(bill_type: str = Query(..., min_length=1), bill_number: int = Query(..
 
 
 @app.get("/recent_bills")
-def recent_bills():
+def recent_bills(
+    limit: int = Query(10, ge=1, le=100, description="Number of bills to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+):
     """
-    Return the last 10 bills by latest action from Congress.gov.
-    No local sorting or filtering; we trust the API ordering.
+    Return the last N bills by latest action from Congress.gov.
+    Supports pagination via limit and offset.
+    Uses summary data from Congress.gov API (fast, no individual bill enrichment).
     """
     url = "https://api.congress.gov/v3/bill"
+    
+    # Fetch bills from Congress.gov - request enough to handle offset + limit
+    fetch_limit = min(250, max(limit + offset, 10))
+    
     try:
         r = _get(
             url,
             params={
                 "api_key": CONGRESS_API_KEY,
                 "format": "json",
-                "limit": 10,  # exactly 10
+                "congress": CONGRESS,
+                "limit": fetch_limit,
             },
         )
     except Exception as e:
@@ -527,7 +537,7 @@ def recent_bills():
     data = r.json()
     items = data.get("bills", []) or []
 
-    # Normalize a compact payload
+    # Normalize a compact payload - use summary data only (fast)
     results = []
     for b in items:
         t = b.get("type") or ""  # This comes as "hr", "s", etc. from Congress API (lowercase)
@@ -535,21 +545,35 @@ def recent_bills():
         la = b.get("latestAction") or {}
         
         # Normalize bill type for bill_id format (HR.1234, S.567, etc.)
-        # normalize_bill_type handles the conversion (hr -> hr, but we want HR for display)
         normalized_type = normalize_bill_type(t).upper()  # hr -> HR, s -> S
         bill_id = f"{normalized_type}.{n}" if t and n else None
         
+        if not bill_id:
+            continue
+        
+        # Use summary data directly from Congress.gov API
         results.append({
             "bill_id": bill_id,
             "title": b.get("title"),
+            "introduced_date": b.get("introducedDate"),
             "latest_action": {
-                "date": la.get("actionDate"),
+                "date": la.get("actionDate") or b.get("introducedDate"),
                 "text": la.get("text"),
             },
-            "url": b.get("url"),
+            "policy_area": None,  # Not available in summary
+            "sponsors": [],  # Not available in summary
+            "cosponsors_count": 0,  # Not available in summary
+            "url": b.get("url") or f"https://api.congress.gov/v3/bill/{CONGRESS}/{t}/{n}?format=json",
         })
 
-    return {"count": len(results), "results": results}
+    # Sort by latest_action date (most recent first), fallback to introduced_date
+    results.sort(key=lambda x: (x.get("latest_action", {}).get("date") or x.get("introduced_date") or ""), reverse=True)
+    
+    # Apply pagination
+    total_count = len(results)
+    paginated_results = results[offset:offset + limit]
+    
+    return {"count": total_count, "results": paginated_results}
 
 
 @app.get("/bill_info")
@@ -570,6 +594,14 @@ def get_bill_info(
         raise HTTPException(status_code=404, detail=f"Bill not found: {str(e)}")
 
     bill = data.get("bill", {}) or {}
+    latest_action = bill.get("latestAction") or {}
+    latest_action_text = latest_action.get("text") or ""
+    
+    # Get all actions to determine status accurately
+    actions = bill.get("actions", []) or []
+    
+    # Determine status from actions
+    status = determine_bill_status(actions, latest_action_text)
 
     # Build minimal result
     result = {
@@ -588,9 +620,10 @@ def get_bill_info(
             for s in (bill.get("sponsors") or [])
         ],
         "cosponsors_count": (bill.get("cosponsors") or {}).get("count", 0),
+        "status": status,  # Add determined status
         "latest_action": {
-            "date": (bill.get("latestAction") or {}).get("actionDate"),
-            "text": (bill.get("latestAction") or {}).get("text"),
+            "date": latest_action.get("actionDate"),
+            "text": latest_action_text,
         },
     }
 
@@ -691,12 +724,12 @@ _BILL_PAT = re.compile(
     \b(
         H\s*\.?\s*R\s*\.?            |   # H.R.
         S\s*\.?                      |   # S.
-        H\s*J\s*\.?\s*RES\s*\.?      |   # HJRES / H.J.RES.
-        S\s*J\s*\.?\s*RES\s*\.?      |   # SJRES / S.J.RES.
+        H\s*\.?\s*J\s*\.?\s*RES\s*\.?      |   # HJRES / H.J.RES. / H.J.Res.
+        S\s*\.?\s*J\s*\.?\s*RES\s*\.?      |   # SJRES / S.J.RES. / S.J.Res.
         H\s*RES\s*\.?                |   # HRES / H.RES.
         S\s*RES\s*\.?                |   # SRES / S.RES.
-        H\s*CON\s*\.?\s*RES\s*\.?    |   # HCONRES / H.CON.RES.
-        S\s*CON\s*\.?\s*RES\s*\.?        # SCONRES / S.CON.RES.
+        H\s*\.?\s*CON\s*\.?\s*RES\s*\.?    |   # HCONRES / H.CON.RES. / H.Con.Res.
+        S\s*\.?\s*CON\s*\.?\s*RES\s*\.?        # SCONRES / S.CON.RES. / S.Con.Res.
     )
     [\s\-\.]*                         # optional separators
     (\d{1,5})                         # bill number
@@ -723,17 +756,42 @@ def parse_bill_from_text(text: str):
     """Return (bill_type, bill_number) or (None, None) if not found."""
     if not text:
         return None, None
+    
+    # First try the main pattern (handles H.Con.Res.38, H.Con.Res 38, etc.)
     m = _BILL_PAT.search(text)
     if not m:
+        # Try pattern that matches formats like HCONRES.38, HR.1234, S.567
         m2 = re.search(
             r"\b(HR|S|HJRES|SJRES|HRES|SRES|HCONRES|SCONRES)\s*\.?\s*-?\s*(\d{1,5})\b",
             text, flags=re.IGNORECASE
         )
         if not m2:
-            return None, None
-        typ_raw, num = m2.group(1), m2.group(2)
+            # Try pattern for formats like H.Con.Res.38, H.J.Res.88, S.Con.Res.12
+            # Match "H.Con.Res" or "H.Con.Res." followed by number
+            m3 = re.search(
+                r"\b(H|S)\s*\.\s*(Con\s*\.\s*Res|J\s*\.\s*Res|Res|Con\s*Res)\s*\.?\s*(\d{1,5})\b",
+                text, flags=re.IGNORECASE
+            )
+            if not m3:
+                return None, None
+            # Extract chamber and type
+            chamber = m3.group(1).upper()
+            res_type = m3.group(2).replace(".", "").replace(" ", "").upper()
+            num = m3.group(3)
+            # Map to bill type
+            if "CONRES" in res_type or "CONRES" in res_type.replace(".", ""):
+                typ_raw = f"{chamber}CONRES"
+            elif "JRES" in res_type or "JRES" in res_type.replace(".", ""):
+                typ_raw = f"{chamber}JRES"
+            elif "RES" in res_type:
+                typ_raw = f"{chamber}RES"
+            else:
+                return None, None
+        else:
+            typ_raw, num = m2.group(1), m2.group(2)
     else:
         typ_raw, num = m.group(1), m.group(2)
+    
     bill_type = _normalize_bill_type(typ_raw)
     try:
         bill_number = int(num)
@@ -744,6 +802,115 @@ def parse_bill_from_text(text: str):
 # ---------------------------
 # 2) Reusable bill info fetch
 # ---------------------------
+def determine_bill_status(actions: list, latest_action_text: str = "") -> str:
+    """
+    Determine bill status from actions array or latest_action text.
+    Status progression: Introduced -> Passed Senate/Passed House -> Passed Both Chambers -> To President -> Became Law
+    """
+    text = latest_action_text.lower() if latest_action_text else ""
+    
+    # If we have actions, check them first
+    if actions:
+        has_passed_senate = False
+        has_passed_house = False
+        has_become_law = False
+        has_gone_to_president = False
+        
+        for action in actions:
+            # Handle both dict and string formats
+            if isinstance(action, dict):
+                action_text = (action.get("text") or "").lower()
+            elif isinstance(action, str):
+                action_text = action.lower()
+            else:
+                continue
+            
+            # Check for final status first (most important)
+            if "became public law" in action_text or "signed by president" in action_text or "enacted" in action_text:
+                has_become_law = True
+            elif "sent to president" in action_text or "presented to president" in action_text or "to president" in action_text:
+                has_gone_to_president = True
+            elif "passed senate" in action_text:
+                has_passed_senate = True
+            elif "passed house" in action_text:
+                has_passed_house = True
+        
+        # Determine status based on what we found
+        if has_become_law:
+            return "Became Law"
+        elif has_gone_to_president:
+            return "To President"
+        elif has_passed_senate and has_passed_house:
+            return "Passed Both Chambers"
+        elif has_passed_senate:
+            return "Passed Senate"
+        elif has_passed_house:
+            return "Passed House"
+    
+    # Parse latest_action text (primary method since actions may not be available)
+    if not text:
+        return "Pending"
+    
+    # Check for final status first (most important)
+    if "became public law" in text or "signed by president" in text or "enacted" in text:
+        return "Became Law"
+    
+    if "sent to president" in text or "presented to president" in text or "presented to the president" in text:
+        return "To President"
+    
+    # Check if both chambers have passed (check for both in the text or in actions history)
+    # Note: latestAction might only show the most recent action, so we check if it mentions both
+    if ("passed senate" in text and "passed house" in text) or ("passed both chambers" in text):
+        return "Passed Both Chambers"
+    
+    # Check individual chamber passages (more specific patterns first)
+    if "passed senate" in text or "senate passed" in text or "passed by the senate" in text:
+        return "Passed Senate"
+    
+    if "passed house" in text or "house passed" in text or "passed by the house" in text or "house agreed to" in text:
+        return "Passed House"
+    
+    # Check for bills on calendar (ready for floor vote)
+    if "placed on" in text and ("calendar" in text or "union calendar" in text or "house calendar" in text or "senate calendar" in text):
+        return "On Calendar"
+    
+    # Check for bills in Senate after passing House (motion to proceed indicates House passed)
+    if "motion to proceed" in text and "senate" in text:
+        return "Passed House"
+    
+    # Check for bills received in Senate (indicates House passed)
+    if "received in the senate" in text:
+        return "Passed House"
+    
+    # Check for bills in Senate consideration
+    if "in senate" in text and ("consideration" in text or "motion" in text or "ordered" in text):
+        return "In Senate"
+    
+    # Check for reconsideration motions (bills being reconsidered)
+    if "reconsider" in text and ("senate" in text or "senator" in text):
+        return "In Senate"
+    
+    # Check for bills reported out of committee
+    if "ordered to be reported" in text or "reported" in text and "committee" in text:
+        return "Reported from Committee"
+    
+    # Check for other statuses
+    if "vetoed" in text or "veto" in text:
+        return "Vetoed"
+    
+    if "failed" in text or "rejected" in text:
+        return "Failed"
+    
+    if "introduced" in text:
+        return "Introduced"
+    
+    if "referred to" in text or "committee" in text:
+        return "In Committee"
+    
+    # Default fallback
+    return "Pending"
+
+
 def get_bill_info_data(
     bill_type: str,
     bill_number: int,
@@ -763,6 +930,28 @@ def get_bill_info_data(
         return {"error": f"Bill not found or fetch failed: {str(e)}"}
 
     bill = data.get("bill", {}) or {}
+    latest_action = bill.get("latestAction") or {}
+    latest_action_text = latest_action.get("text") or ""
+    
+    # Get all actions to determine status accurately
+    # Congress.gov API v3 may provide actions in the bill object, but it's not always present
+    # Also, actions might be a list of strings or dicts, so we need to handle both
+    actions_raw = bill.get("actions", []) or []
+    # Normalize actions to always be a list of dicts (or empty list)
+    actions = []
+    for action in actions_raw:
+        if isinstance(action, dict):
+            actions.append(action)
+        elif isinstance(action, str):
+            # Convert string to dict format
+            actions.append({"text": action})
+        # Skip other types
+    
+    # Determine status from actions and latest_action text
+    status = determine_bill_status(actions, latest_action_text)
+    
+    # Debug logging
+    print(f"[get_bill_info_data] Bill {bill_type.upper()}.{bill_number}: latest_action_text='{latest_action_text[:100] if latest_action_text else 'None'}', status='{status}'")
 
     return {
         "bill_id": f"{bill_type.upper()}.{bill_number}",
@@ -780,9 +969,10 @@ def get_bill_info_data(
             for s in (bill.get("sponsors") or [])
         ],
         "cosponsors_count": (bill.get("cosponsors") or {}).get("count", 0),
+        "status": status,  # Add determined status
         "latest_action": {
-            "date": (bill.get("latestAction") or {}).get("actionDate"),
-            "text": (bill.get("latestAction") or {}).get("text"),
+            "date": latest_action.get("actionDate"),
+            "text": latest_action_text,
         },
     }
 
@@ -820,12 +1010,44 @@ def fetch_bills(congress: Optional[int] = None):
 
         bill_type, bill_number = parse_bill_from_text(bill_label)
         bill_id = f"{bill_type.upper()}.{bill_number}" if bill_type and bill_number else None
+        
+        # Debug logging for parsing
+        if not bill_type or not bill_number:
+            print(f"[fetch_bills] Could not parse bill from label: '{bill_label}' -> bill_type={bill_type}, bill_number={bill_number}")
 
         # Enrich with bill_info if we could parse a bill id
         info = None
         if bill_type and bill_number:
-            info = get_bill_info_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+            try:
+                info = get_bill_info_data(bill_type=bill_type, bill_number=bill_number, congress=congress)
+                # If we got an error dict, set info to None to avoid breaking the response
+                if isinstance(info, dict) and "error" in info:
+                    print(f"[fetch_bills] Error fetching bill info for {bill_id}: {info.get('error')}")
+                    info = None
+                else:
+                    print(f"[fetch_bills] Successfully fetched bill info for {bill_id}: title='{info.get('title')[:60] if info and info.get('title') else 'None'}...'")
+            except Exception as e:
+                print(f"[fetch_bills] Exception fetching bill info for {bill_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                info = None
+        else:
+            print(f"[fetch_bills] Skipping bill info fetch - could not parse bill_id from label: '{bill_label}'")
 
+        # Extract CLOB token IDs for price history fetching
+        # clobTokenIds can be a list or JSON string
+        clob_token_ids_raw = m.get("clobTokenIds") or []
+        if isinstance(clob_token_ids_raw, str):
+            try:
+                clob_token_ids = json.loads(clob_token_ids_raw)
+            except (json.JSONDecodeError, TypeError):
+                clob_token_ids = []
+        else:
+            clob_token_ids = clob_token_ids_raw if isinstance(clob_token_ids_raw, list) else []
+        
+        condition_id = m.get("conditionId")
+        market_id = m.get("id")
+        
         results.append({
             "bill": bill_label,
             "yes_percent": pct,
@@ -833,6 +1055,9 @@ def fetch_bills(congress: Optional[int] = None):
             "bill_number": bill_number,
             "bill_id": bill_id,
             "info": info,  # dict or None
+            "clob_token_ids": clob_token_ids,  # [yes_token, no_token]
+            "condition_id": condition_id,  # Polymarket condition ID
+            "market_id": market_id,  # Polymarket market ID
         })
 
     results.sort(key=lambda x: (-x["yes_percent"], x["bill"] or ""))
@@ -863,6 +1088,170 @@ def get_bills(
     enriched with Congress.gov bill info in the 'info' field.
     """
     return JSONResponse(fetch_bills(congress=congress))
+
+
+def fetch_price_history(token_id: str, interval: str = "1d", start_ts: Optional[int] = None, end_ts: Optional[int] = None):
+    """
+    Fetch historical price data for a Polymarket CLOB token.
+    
+    Args:
+        token_id: The CLOB token ID (from clobTokenIds array)
+        interval: Duration ending at current time ("1m", "1h", "6h", "1d", "1w", "max")
+        start_ts: Start timestamp (Unix seconds, UTC)
+        end_ts: End timestamp (Unix seconds, UTC)
+    
+    Returns:
+        List of {timestamp, price} pairs, or None on error
+    """
+    url = "https://clob.polymarket.com/prices-history"
+    params = {
+        "market": token_id,
+    }
+    
+    if interval:
+        params["interval"] = interval
+    
+    # Set minimum fidelity based on interval (required by Polymarket API)
+    # For longer intervals, need higher fidelity (resolution in minutes)
+    if interval == "1w":
+        params["fidelity"] = 60  # 1 hour resolution for 1 week
+    elif interval == "max":
+        params["fidelity"] = 1440  # 1 day resolution for max
+    elif interval == "1d":
+        params["fidelity"] = 15  # 15 minute resolution for 1 day
+    elif interval in ["6h", "1h"]:
+        params["fidelity"] = 5  # 5 minute resolution
+    
+    if start_ts:
+        params["startTs"] = start_ts
+    if end_ts:
+        params["endTs"] = end_ts
+    
+    try:
+        response = _get(url, params=params, timeout=10)
+        data = response.json()
+        
+        # Check for error response
+        if "error" in data:
+            print(f"[fetch_price_history] Polymarket API error for token {token_id}: {data.get('error')}")
+            return None
+        
+        history = data.get("history", [])
+        # Convert to more usable format
+        # Price format: Could be decimal (0.0-1.0) or basis points (0-10000)
+        # Test the first entry to determine format
+        result = []
+        for entry in history:
+            timestamp = entry.get("t")  # Unix timestamp in seconds
+            price_raw = entry.get("p", 0)
+            
+            # Determine if price is in basis points (> 1.0) or decimal (<= 1.0)
+            if price_raw > 1.0:
+                # Assume basis points, convert to decimal
+                price_decimal = price_raw / 10000.0
+            else:
+                # Already in decimal format
+                price_decimal = float(price_raw)
+            
+            result.append({
+                "timestamp": timestamp,
+                "price": price_decimal,
+            })
+        
+        return result
+    except Exception as e:
+        print(f"[fetch_price_history] Error fetching price history for token {token_id}: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_data = e.response.json()
+                print(f"[fetch_price_history] Error details: {error_data}")
+            except:
+                pass
+        return None
+
+
+@app.get("/bills/{bill_id}/price-history")
+def get_bill_price_history(
+    bill_id: str,
+    interval: str = Query("1d", description="Time interval: 1m, 1h, 6h, 1d, 1w, max"),
+    start_ts: Optional[int] = Query(None, description="Start timestamp (Unix seconds, UTC)"),
+    end_ts: Optional[int] = Query(None, description="End timestamp (Unix seconds, UTC)"),
+    fidelity: Optional[int] = Query(None, description="Resolution in minutes (auto-set based on interval if not provided)"),
+):
+    """
+    Get historical price data for a bill's Polymarket market.
+    Returns YES price history.
+    """
+    # First, fetch bills to find the market for this bill_id
+    bills = fetch_bills()
+    
+    # Normalize bill_id for matching (handle various formats like HR.1234, H.R.1234, HR1234, etc.)
+    def normalize_bill_id(bid):
+        if not bid:
+            return None
+        # Remove dots and spaces, uppercase
+        normalized = bid.replace(".", "").replace(" ", "").upper()
+        # Handle H.R -> HR conversion
+        normalized = normalized.replace("HR", "HR") if normalized.startswith("H") and not normalized.startswith("HR") else normalized
+        return normalized
+    
+    bill_id_normalized = normalize_bill_id(bill_id)
+    
+    # Find matching bill
+    matching_bill = None
+    for bill in bills:
+        bid = normalize_bill_id(bill.get("bill_id"))
+        if bid == bill_id_normalized:
+            matching_bill = bill
+            break
+    
+    if not matching_bill:
+        raise HTTPException(status_code=404, detail=f"Bill {bill_id} not found in Polymarket markets")
+    
+    clob_token_ids = matching_bill.get("clob_token_ids") or []
+    
+    # Handle case where clob_token_ids might still be a JSON string
+    if isinstance(clob_token_ids, str):
+        try:
+            clob_token_ids = json.loads(clob_token_ids)
+        except (json.JSONDecodeError, TypeError):
+            clob_token_ids = []
+    
+    if not clob_token_ids or len(clob_token_ids) < 1:
+        raise HTTPException(status_code=404, detail=f"No CLOB token IDs found for bill {bill_id}")
+    
+    # Ensure it's a list
+    if not isinstance(clob_token_ids, list):
+        raise HTTPException(status_code=500, detail=f"Invalid clob_token_ids format for bill {bill_id}")
+    
+    # Use the first token (YES token)
+    yes_token_id = str(clob_token_ids[0])  # Ensure it's a string
+    
+    # Fetch price history (fidelity is auto-set in fetch_price_history based on interval)
+    history = fetch_price_history(yes_token_id, interval=interval, start_ts=start_ts, end_ts=end_ts)
+    
+    if history is None:
+        raise HTTPException(status_code=502, detail="Failed to fetch price history from Polymarket")
+    
+    # Format response with dates and both YES/NO prices
+    formatted_history = []
+    for entry in history:
+        timestamp = entry["timestamp"]
+        yes_price = entry["price"]
+        no_price = 1.0 - yes_price
+        
+        # Convert timestamp to date
+        date_obj = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        
+        formatted_history.append({
+            "timestamp": timestamp,
+            "date": date_obj.isoformat().split("T")[0],  # YYYY-MM-DD
+            "yesPrice": yes_price,
+            "noPrice": no_price,
+            "displayDate": date_obj.strftime("%b %d"),  # "Jan 15"
+        })
+    
+    return JSONResponse({"history": formatted_history})
 
 @app.get("/cosponsors")
 def get_bill_cosponsors(

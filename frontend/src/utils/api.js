@@ -751,10 +751,18 @@ const modelApiClient = axios.create({
 });
 
 // Fetch recent bills from model API
-export const getRecentBills = async () => {
+export const getRecentBills = async (limit = null, offset = 0) => {
   try {
-    console.log('Fetching recent bills from API...');
-    const response = await modelApiClient.get('/recent_bills');
+    console.log(`Fetching recent bills from API... limit=${limit}, offset=${offset}`);
+    const params = {};
+    if (limit !== null) {
+      params.limit = limit;
+    }
+    if (offset > 0) {
+      params.offset = offset;
+    }
+    
+    const response = await modelApiClient.get('/recent_bills', { params });
     console.log('Recent bills API response:', response.data);
     
     if (response.data && response.data.results && response.data.results.length > 0) {
@@ -763,16 +771,26 @@ export const getRecentBills = async () => {
         title: bill.title || 'Untitled Bill',
         latest_action: bill.latest_action || {},
         url: bill.url,
+        status: bill.status || null, // Include status if available from API
+        // These fields are not available in the /recent_bills API response:
+        introduced_date: bill.introduced_date || null,
+        policy_area: bill.policy_area || null,
+        sponsors: bill.sponsors || [],
+        cosponsors_count: bill.cosponsors_count || 0,
       }));
-      console.log(`Fetched ${bills.length} bills from API`);
-      return bills;
+      console.log(`Fetched ${bills.length} bills from API (total count: ${response.data.count || 'unknown'})`);
+      return {
+        bills,
+        totalCount: response.data.count || bills.length,
+        hasMore: limit ? bills.length === limit : false,
+      };
     }
     console.log('No bills in API response');
-    return [];
+    return { bills: [], totalCount: 0, hasMore: false };
   } catch (error) {
     console.error('Error fetching recent bills from model API:', error);
     console.error('Error details:', error.response?.data || error.message);
-    return [];
+    return { bills: [], totalCount: 0, hasMore: false };
   }
 };
 
@@ -832,12 +850,53 @@ export const getPolymarketBills = async () => {
         volume: null, // Not provided by /bills endpoint
         source: 'polymarket',
         info: bill.info || null, // Include full info field (title, sponsors, cosponsors_count, etc.)
+        clob_token_ids: bill.clob_token_ids || [], // CLOB token IDs for price history
+        condition_id: bill.condition_id || null, // Polymarket condition ID
+        market_id: bill.market_id || null, // Polymarket market ID
       }));
     }
     return [];
   } catch (error) {
     console.error('Error fetching Polymarket bills:', error);
     return [];
+  }
+};
+
+// Fetch historical price data for a bill from Polymarket
+export const getBillPriceHistory = async (billId, interval = '1d') => {
+  try {
+    // Normalize bill ID (handle various formats)
+    const normalizeBillId = (id) => {
+      if (!id) return null;
+      return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+    };
+    
+    const normalizedBillId = normalizeBillId(billId);
+    
+    // Call the price history endpoint
+    const response = await modelApiClient.get(`/bills/${normalizedBillId}/price-history`, {
+      params: {
+        interval: interval,
+      },
+      timeout: 10000, // 10 second timeout
+    });
+    
+    if (response.data && response.data.history) {
+      // Convert to format expected by the chart component
+      return response.data.history.map(entry => ({
+        date: entry.date,
+        timestamp: entry.timestamp * 1000, // Convert to milliseconds
+        yesPrice: entry.yesPrice,
+        noPrice: entry.noPrice,
+        displayDate: entry.displayDate,
+        volume: null, // Volume not provided by Polymarket price history
+      }));
+    }
+    
+    return [];
+  } catch (error) {
+    console.error(`Error fetching price history for bill ${billId}:`, error);
+    return null; // Return null to indicate error (frontend can fallback to mock data)
   }
 };
 
@@ -989,8 +1048,8 @@ export const getBillInfo = async (billId) => {
         sponsors: response.data.sponsors || [],
         cosponsors_count: response.data.cosponsors_count || 0,
         latest_action: response.data.latest_action || {},
-        // Determine status from latest_action text
-        status: determineBillStatus(response.data.latest_action?.text || ''),
+        // Use status directly from API if available, otherwise determine from action text
+        status: response.data.status || determineBillStatus(response.data.latest_action?.text || ''),
       };
     }
     return null;
