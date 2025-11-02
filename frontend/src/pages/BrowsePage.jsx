@@ -873,16 +873,43 @@ const BrowsePage = () => {
       filtered = filtered.filter(b => b.sector === 'Healthcare');
     }
 
-    // Custom sort: Bettable bills first (sorted by date desc), then non-bettable bills (sorted by date desc)
+    // Sort: Bettable bills first, then non-bettable bills
+    // Each section is sorted independently based on sortBy
     filtered.sort((a, b) => {
       // First, separate bettable and non-bettable bills
       if (a.isBettable && !b.isBettable) return -1; // a (bettable) comes first
       if (!a.isBettable && b.isBettable) return 1;  // b (bettable) comes first
       
-      // Both are bettable or both are non-bettable - sort by date (most recent first)
-      const dateA = new Date(a.date);
-      const dateB = new Date(b.date);
-      return dateB - dateA; // Descending order (newest first)
+      // Both are bettable or both are non-bettable - sort within their section
+      const isBettable = a.isBettable;
+      
+      if (sortBy === 'odds') {
+        // Only sort bettable bills by odds; non-bettable bills remain in original order
+        if (isBettable) {
+          // Sort bettable bills by passing odds (descending - highest odds first)
+          const oddsA = a.passingOdds || 0;
+          const oddsB = b.passingOdds || 0;
+          return oddsB - oddsA;
+        } else {
+          // Non-bettable bills: keep original order
+          return 0;
+        }
+      } else if (sortBy === 'title') {
+        // Sort both sections alphabetically by title
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
+        return titleA.localeCompare(titleB);
+      } else if (sortBy === 'date') {
+        // Sort both sections by date (most recent first)
+        const dateA = new Date(a.date || 0);
+        const dateB = new Date(b.date || 0);
+        return dateB - dateA; // Descending order (newest first)
+      } else {
+        // Default: sort by date (most recent first) for both sections
+        const dateA = new Date(a.date || 0);
+        const dateB = new Date(b.date || 0);
+        return dateB - dateA;
+      }
     });
 
     return filtered;
@@ -1182,13 +1209,16 @@ const BrowsePage = () => {
                 // Helper function to render a bill card
                 const renderBillCard = (bill, index, totalInGroup) => {
                   const isLastInRow = (index + 1) % 2 === 0;
+                  // For odd-numbered groups, the last item should not have a right border
+                  const isLastItem = index === totalInGroup - 1;
+                  const isOddGroup = totalInGroup % 2 === 1;
                   
                   return (
                     <Link
                       key={bill.id}
                       to={`/legislation/${bill.id}/bet`}
                       className={`flex bg-white border-b border-r border-black hover:bg-gray-50 transition-colors relative group ${
-                        isLastInRow ? 'border-r-0' : ''
+                        isLastInRow || (isLastItem && isOddGroup) ? 'border-r-0' : ''
                       }`}
                     >
                       {/* Blue square on top-right corner on hover */}
@@ -1307,15 +1337,17 @@ const BrowsePage = () => {
                       </div>
                     )}
                     
-                    {/* Separator line between bettable and non-bettable bills */}
-                    {bettableBills.length > 0 && nonBettableBills.length > 0 && (
-                      <div className="w-full border-t-2 border-black my-8 -mx-6"></div>
-                    )}
-                    
                     {/* Non-bettable bills grid */}
                     {nonBettableBills.length > 0 && (
-                      <div className={`grid grid-cols-1 md:grid-cols-2 gap-0 border-l border-r border-black -mx-6 ${bettableBills.length > 0 ? 'border-t-0' : 'border-t'}`}>
-                        {nonBettableBills.map((bill, index) => renderBillCard(bill, index, nonBettableBills.length))}
+                      <>
+                        {/* Top border and spacing for non-bettable bills section */}
+                        {bettableBills.length > 0 && (
+                          <>
+                            <div className="w-full border-t-2 border-black -mx-6 mt-8 mb-8"></div>
+                          </>
+                        )}
+                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-0 border-l border-r border-black -mx-6 ${bettableBills.length > 0 ? 'border-t-0' : 'border-t'}`}>
+                          {nonBettableBills.map((bill, index) => renderBillCard(bill, index, nonBettableBills.length))}
                         
                         {/* Observer target for infinite scroll */}
                         {(displayedBillsCount < recentBills.length || 
@@ -1337,7 +1369,8 @@ const BrowsePage = () => {
                             )}
                           </div>
                         )}
-                      </div>
+                        </div>
+                      </>
                     )}
                     
                     {/* Observer target for infinite scroll - if only bettable bills exist */}

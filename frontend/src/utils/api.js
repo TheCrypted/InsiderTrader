@@ -1206,6 +1206,61 @@ const determineBillStatus = (actionText) => {
   return 'Pending';
 };
 
+// Fetch cosponsors and sponsors for a bill
+export const getBillCosponsors = async (billId) => {
+  try {
+    const parsed = parseBillId(billId);
+    if (!parsed) {
+      console.warn(`Could not parse bill_id for cosponsors: ${billId}`);
+      return { sponsors: [], cosponsors: [] };
+    }
+
+    console.log(`Fetching cosponsors for ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
+    
+    // First get bill info to get sponsors
+    const billInfo = await getBillInfo(billId);
+    
+    // Then get cosponsors
+    const response = await modelApiClient.get('/cosponsors', {
+      params: {
+        bill_type: parsed.bill_type,
+        bill_number: parsed.bill_number,
+      },
+      timeout: 10000,
+    });
+
+    const sponsors = billInfo?.sponsors || [];
+    const cosponsors = response.data?.cosponsors || [];
+
+    // Normalize sponsor/cosponsor data to have consistent field names
+    const normalizedSponsors = sponsors.map(s => ({
+      ...s,
+      name: s.name || s.fullName || 'Unknown',
+      bioguide_id: s.bioguide_id || s.bioguideId || null,
+      party: s.party || 'Unknown',
+      state: s.state || 'Unknown',
+    }));
+    
+    const normalizedCosponsors = cosponsors.map(c => ({
+      ...c,
+      name: c.name || c.fullName || 'Unknown',
+      bioguide_id: c.bioguide_id || c.bioguideId || null,
+      party: c.party || 'Unknown',
+      state: c.state || 'Unknown',
+      district: c.district || null,
+    }));
+
+    return {
+      sponsors: normalizedSponsors,
+      cosponsors: normalizedCosponsors,
+      total: normalizedSponsors.length + normalizedCosponsors.length,
+    };
+  } catch (error) {
+    console.error(`Error fetching cosponsors for ${billId}:`, error.message || error);
+    return { sponsors: [], cosponsors: [], total: 0 };
+  }
+};
+
 // Fetch graph data from /graph endpoint
 // No parameters - let API return all available data with its defaults
 export const getGraphData = async () => {

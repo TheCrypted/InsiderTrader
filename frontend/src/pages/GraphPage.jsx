@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
+import { forceCollide } from 'd3-force';
 import Header from '../components/Header';
 import { graphNodes as mockGraphNodes, graphLinks as mockGraphLinks, nodeColors, sectorColors } from '../utils/graphData';
 import { getRecentBills, getAllRepresentativesBasic, loadTradesForBatch, getGraphData } from '../utils/api';
@@ -674,6 +675,7 @@ const GraphPage = () => {
               }}
               linkWidth={link => (link.strength || 0.5) * 3}
               // Enhanced force simulation parameters for better physics
+              // Note: We'll handle repulsion via d3Force to account for node sizes
               nodeRepulsion={d => {
                 const baseSize = d.normalizedSize || (d.type === 'bill' ? 45 : 18);
                 // Extremely strong repulsion for bills to create whitespace around them
@@ -696,6 +698,22 @@ const GraphPage = () => {
               linkStrength={link => {
                 // Extremely weak link strength (gravity) - minimal pull between nodes
                 return (link.strength || 0.5) * 0.01;
+              }}
+              // Add collision detection force to prevent node overlap based on radius
+              // This ensures repulsion is calculated from the outer edge of bubbles, not the center
+              d3Force={(simulation) => {
+                // Add collision force that uses node radius to prevent overlap
+                // The radius is calculated from the node's normalizedSize
+                simulation.force('collision', forceCollide()
+                  .radius((node) => {
+                    const baseSize = node.normalizedSize || (node.type === 'bill' ? 45 : 18);
+                    // Return the radius (size/2) plus padding to prevent touching
+                    // This makes repulsion work from the outer edge of the circle, not the center
+                    return (baseSize / 2) + 15;
+                  })
+                  .strength(0.9) // Collision strength (0-1) - higher = stronger collision avoidance
+                  .iterations(2) // Number of iterations per tick for better stability
+                );
               }}
               // Add many-body force for better spacing - more iterations for better layout
               warmupTicks={150}

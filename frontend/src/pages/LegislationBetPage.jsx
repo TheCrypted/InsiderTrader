@@ -5,7 +5,7 @@ import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
-import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory, getMLPrediction } from '../utils/api';
+import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory, getMLPrediction, getBillCosponsors, getTrades } from '../utils/api';
 import { useStockLogo } from '../hooks/useImage';
 import { useSignalR } from '../hooks/useSignalR';
 
@@ -60,6 +60,132 @@ const LegislationBetPage = () => {
   const [mlPredictionLoading, setMlPredictionLoading] = useState(false); // Loading state for ML prediction
   const [tradeNotification, setTradeNotification] = useState(null); // Notification for trade/lobbying activity
   const [showNotification, setShowNotification] = useState(false); // Whether to show notification
+  const [supportersPage, setSupportersPage] = useState(1); // Pagination state for supporters
+  const supportersPerPage = 10;
+  
+  // Helper function to fetch and set supporters
+  const fetchSupportersForBill = async (billId) => {
+    if (!billId) return;
+    
+    try {
+      const supporterData = await getBillCosponsors(billId);
+      const { sponsors, cosponsors } = supporterData;
+      
+      // Combine sponsors and cosponsors
+      const allSupporters = [
+        ...sponsors.map(s => ({ ...s, role: 'Sponsor' })),
+        ...cosponsors.map(c => ({ ...c, role: 'Cosponsor' }))
+      ];
+      
+      if (allSupporters.length === 0) {
+        return; // No supporters found
+      }
+      
+      // Fetch congressman info for each supporter to get image, party, chamber
+      const supportersWithInfo = await Promise.all(
+        allSupporters.map(async (supporter) => {
+          const bioguideId = supporter.bioguide_id || supporter.bioguideId;
+          if (!bioguideId) {
+            return {
+              id: null,
+              name: supporter.name || supporter.fullName || 'Unknown',
+              party: supporter.party || 'Unknown',
+              chamber: supporter.state ? (supporter.district ? 'House' : 'Senate') : 'Unknown',
+              state: supporter.state || 'Unknown',
+              image: null,
+              role: supporter.role || 'Cosponsor',
+              tradingActivity: [], // Optional - can be fetched later if needed
+            };
+          }
+          
+          try {
+            const [congressman, trades] = await Promise.all([
+              getCongressman(bioguideId),
+              getTrades(bioguideId).catch(() => []) // Fetch trades, but don't fail if it errors
+            ]);
+            
+            // Get top 2-3 trades sorted by date (most recent first)
+            const topTrades = trades
+              .sort((a, b) => {
+                const dateA = a.traded ? new Date(a.traded) : new Date(0);
+                const dateB = b.traded ? new Date(b.traded) : new Date(0);
+                return dateB - dateA; // Most recent first
+              })
+              .slice(0, 3)
+              .map(trade => ({
+                stock: trade.stock || trade.ticker || '-',
+                action: trade.transaction === 'Sale' ? 'Sale' : 'Purchase',
+                date: trade.traded || trade.filed || new Date().toISOString(),
+                amount: trade.amount || 'N/A',
+                excessReturn: trade.excessReturn || 0,
+                status: trade.excessReturn > 0 ? 'Suspicious' : null,
+              }));
+            
+            if (congressman) {
+              return {
+                id: bioguideId,
+                name: congressman.name || supporter.name || supporter.fullName || 'Unknown',
+                party: congressman.party || supporter.party || 'Unknown',
+                chamber: congressman.chamber || (supporter.district ? 'House' : 'Senate') || 'Unknown',
+                state: congressman.state || supporter.state || 'Unknown',
+                image: congressman.image || null,
+                role: supporter.role || 'Cosponsor',
+                tradingActivity: topTrades, // Top 2-3 trades
+              };
+            }
+          } catch (error) {
+            console.warn(`Error fetching congressman info for ${bioguideId}:`, error);
+          }
+          
+          // Fallback if congressman fetch fails - try to get trades anyway
+          let topTrades = [];
+          try {
+            const trades = await getTrades(bioguideId);
+            topTrades = trades
+              .sort((a, b) => {
+                const dateA = a.traded ? new Date(a.traded) : new Date(0);
+                const dateB = b.traded ? new Date(b.traded) : new Date(0);
+                return dateB - dateA;
+              })
+              .slice(0, 3)
+              .map(trade => ({
+                stock: trade.stock || trade.ticker || '-',
+                action: trade.transaction === 'Sale' ? 'Sale' : 'Purchase',
+                date: trade.traded || trade.filed || new Date().toISOString(),
+                amount: trade.amount || 'N/A',
+                excessReturn: trade.excessReturn || 0,
+                status: trade.excessReturn > 0 ? 'Suspicious' : null,
+              }));
+          } catch (err) {
+            // Ignore trade fetch errors
+          }
+          
+          return {
+            id: bioguideId,
+            name: supporter.name || supporter.fullName || 'Unknown',
+            party: supporter.party || 'Unknown',
+            chamber: supporter.district ? 'House' : 'Senate',
+            state: supporter.state || 'Unknown',
+            image: null,
+            role: supporter.role || 'Cosponsor',
+            tradingActivity: topTrades,
+          };
+        })
+      );
+      
+      // Update legislation with supporters
+      setLegislation(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          supportingCongressmen: supportersWithInfo,
+        };
+      });
+    } catch (error) {
+      console.error('Error fetching supporters:', error);
+      // Don't update on error - keep existing data
+    }
+  };
 
   // Helper function to build correct Congress.gov URL
   const buildCongressGovUrl = (billId) => {
@@ -433,19 +559,22 @@ const LegislationBetPage = () => {
           committees: legislationData?.committees || graphBill?.committees || [],
           date: graphBill?.date || legislationData?.date || new Date().toISOString().split('T')[0],
           affectedStocks: stocksToUse,
-          supportingCongressmen: [], // NO MOCK DATA - always empty (real data would come from API)
+          supportingCongressmen: [], // Will be populated by fetching sponsors/cosponsors
           activitySummary: {
             totalTrades: 0,
             suspiciousTrades: 0,
             totalVolume: '$0',
             averageExcessReturn: 0
-          }, // NO MOCK DATA - always zeros (real data would come from API)
+          }, // Optional - can be calculated later if needed
           aiSummary: legislationData?.aiSummary || null,
           priceHistory: [], // Will be fetched from Polymarket if available
         };
         
         setLegislation(completeLegislation);
         setLoading(false);
+        
+        // Fetch sponsors and cosponsors in background
+        fetchSupportersForBill(billId);
       } catch (error) {
         console.error('Error fetching legislation:', error);
         // Try to get from graphBills as fallback
@@ -488,7 +617,7 @@ const LegislationBetPage = () => {
         if (graphBill) {
           // Use graphBill data
           const fallbackTitle = billInfo?.title || graphBill.title || `${billId} - Legislation`;
-          setLegislation({
+          const fallbackLegislation = {
             id: billId,
             title: fallbackTitle,
             question: `Will ${fallbackTitle} pass Congress?`, // Use actual bill title
@@ -518,7 +647,12 @@ const LegislationBetPage = () => {
             },
             aiSummary: null,
             priceHistory: [], // Will be fetched from Polymarket if available
-          });
+          };
+          
+          setLegislation(fallbackLegislation);
+          
+          // Fetch supporters in background
+          fetchSupportersForBill(billId);
         } else {
           // Final fallback: use mock data but fetch bill info to get actual status
           const { legislationDetails } = await import('../utils/legislationData');
@@ -558,7 +692,7 @@ const LegislationBetPage = () => {
           }
           
           const finalTitle = billInfo?.title || fallbackData.title || `${billId} - Legislation`;
-          setLegislation({
+          const finalLegislation = {
             ...fallbackData,
             id: billId,
             title: finalTitle,
@@ -573,7 +707,12 @@ const LegislationBetPage = () => {
             showOdds: showOdds,
             billUrl: billInfo?.url || buildCongressGovUrl(billId),
             priceHistory: [] // Will be fetched from Polymarket if available
-          });
+          };
+          
+          setLegislation(finalLegislation);
+          
+          // Fetch supporters in background
+          fetchSupportersForBill(billId);
         }
       } finally {
         setLoading(false);
@@ -583,6 +722,9 @@ const LegislationBetPage = () => {
     if (billId) {
       fetchLegislation();
     }
+    
+    // Reset pagination when billId changes
+    setSupportersPage(1);
   }, [billId]);
 
   // Fetch stocks from /match API in background after legislation is loaded (useEffect to avoid React warning)
@@ -1275,9 +1417,16 @@ const LegislationBetPage = () => {
               </div>
               
               {legislation.supportingCongressmen && legislation.supportingCongressmen.length > 0 ? (
+              <>
               <div className="space-y-0">
-                {legislation.supportingCongressmen.map((congressman, idx) => (
-                  <div key={idx} className={`border-b border-black p-4 ${idx === legislation.supportingCongressmen.length - 1 ? 'border-b-0' : ''}`}>
+                {legislation.supportingCongressmen
+                  .slice((supportersPage - 1) * supportersPerPage, supportersPage * supportersPerPage)
+                  .map((congressman, idx) => {
+                    const globalIdx = (supportersPage - 1) * supportersPerPage + idx;
+                    const displayedSupporters = legislation.supportingCongressmen.slice((supportersPage - 1) * supportersPerPage, supportersPage * supportersPerPage);
+                    const isLastInPage = idx === displayedSupporters.length - 1;
+                    return (
+                  <div key={congressman.id || globalIdx} className={`border-b border-black p-4 ${isLastInPage ? 'border-b-0' : ''}`}>
                     <div className="flex items-stretch gap-4 mb-3 border-b border-black pb-3 relative" style={{ minHeight: '64px' }}>
                       <div className="w-16 h-16 border border-black flex-shrink-0 self-center relative flex items-center justify-center bg-gray-200">
                         {congressman.image ? (
@@ -1330,12 +1479,13 @@ const LegislationBetPage = () => {
                     
                     {congressman.tradingActivity && congressman.tradingActivity.length > 0 ? (
                       <div className="mt-3 pt-3">
-                        <div className="text-xs font-semibold text-gray-700 mb-2">Trading Activity:</div>
+                        <div className="text-xs font-semibold text-gray-700 mb-2">Recent Trading Activity:</div>
                         <div className="space-y-0">
                           {congressman.tradingActivity.map((trade, tradeIdx) => (
                             <div key={tradeIdx} className={`bg-white p-3 ${tradeIdx > 0 ? 'border-t border-black' : ''}`}>
                               <div className="flex items-center justify-between mb-1">
                                 <div className="flex items-center gap-2">
+                                  <StockLogo ticker={trade.stock} />
                                   <span className="font-semibold text-gray-900">{trade.stock}</span>
                                   <span className={`px-2 py-0.5 text-xs font-medium border border-black ${
                                     trade.action === 'Purchase' 
@@ -1344,17 +1494,19 @@ const LegislationBetPage = () => {
                                   }`}>
                                     {trade.action}
                                   </span>
-                                  {trade.status !== 'Suspicious' && (
+                                  {trade.status === 'Suspicious' && (
                                     <span className="px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800 border border-black">
                                       {trade.status}
                                     </span>
                                   )}
                                 </div>
-                                <span className={`text-sm font-semibold ${
-                                  trade.excessReturn >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'
-                                }`}>
-                                  {trade.excessReturn >= 0 ? '+' : ''}{trade.excessReturn.toFixed(1)}% return
-                                </span>
+                                {trade.excessReturn !== 0 && (
+                                  <span className={`text-sm font-semibold ${
+                                    trade.excessReturn >= 0 ? 'text-gresearch-vivid-green' : 'text-gresearch-vivid-red'
+                                  }`}>
+                                    {trade.excessReturn >= 0 ? '+' : ''}{trade.excessReturn.toFixed(1)}% return
+                                  </span>
+                                )}
                               </div>
                               <div className="flex gap-2 text-xs text-gray-600 mt-2">
                                 <div>
@@ -1363,9 +1515,6 @@ const LegislationBetPage = () => {
                                 <div>
                                   <span className="text-gray-500">Amount:</span> {trade.amount}
                                 </div>
-                                <div>
-                                  <span className="text-gray-500">{trade.daysBeforeBill} days before bill</span>
-                                </div>
                               </div>
                             </div>
                           ))}
@@ -1373,16 +1522,50 @@ const LegislationBetPage = () => {
                       </div>
                     ) : (
                       <div className="mt-3 pt-3">
-                        <div className="text-xs text-gray-500">No trading activity on affected stocks</div>
+                        <div className="text-xs text-gray-500">No trading data available</div>
                       </div>
                     )}
                   </div>
-                ))}
+                    );
+                  })}
               </div>
+              
+              {/* Pagination Controls */}
+              {legislation.supportingCongressmen.length > supportersPerPage && (
+                <div className="flex items-center justify-between border-t border-black p-4 mt-0">
+                  <button
+                    onClick={() => setSupportersPage(prev => Math.max(1, prev - 1))}
+                    disabled={supportersPage === 1}
+                    className={`px-4 py-2 border border-black font-semibold transition-colors ${
+                      supportersPage === 1
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-white text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Page {supportersPage} of {Math.ceil(legislation.supportingCongressmen.length / supportersPerPage)}
+                    {' '}({legislation.supportingCongressmen.length} total)
+                  </span>
+                  <button
+                    onClick={() => setSupportersPage(prev => Math.min(Math.ceil(legislation.supportingCongressmen.length / supportersPerPage), prev + 1))}
+                    disabled={supportersPage >= Math.ceil(legislation.supportingCongressmen.length / supportersPerPage)}
+                    className={`px-4 py-2 border border-black font-semibold transition-colors ${
+                      supportersPage >= Math.ceil(legislation.supportingCongressmen.length / supportersPerPage)
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        : 'bg-white text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+              </>
               ) : (
                 <div className="p-6 text-center text-gray-500">
-                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
-                  <p className="text-sm text-gray-500">No supporter data available</p>
+                  <div className="text-sm text-gray-400 mb-2">No supporters available</div>
+                  <p className="text-xs text-gray-400">This bill has no listed sponsors or cosponsors</p>
                 </div>
               )}
             </div>
@@ -1411,8 +1594,8 @@ const LegislationBetPage = () => {
                 </div>
               ) : (
                 <div className="p-6 text-center text-gray-500">
-                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
-                  <p className="text-sm text-gray-500">No activity summary available</p>
+                  <div className="text-sm text-gray-400 mb-2">Nothing notable happened</div>
+                  <p className="text-xs text-gray-400">No significant trading activity detected</p>
                 </div>
               )}
             </div>
