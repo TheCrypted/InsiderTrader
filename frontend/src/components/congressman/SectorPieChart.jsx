@@ -47,7 +47,10 @@ const SectorPieChart = ({ data }) => {
                 ))}
               </Pie>
               <Tooltip 
-                formatter={(value) => [`${value}%`, 'Percentage']}
+                formatter={(value, name, props) => {
+                  const sector = props.payload?.sector || name || 'Unknown';
+                  return [`${value}%`, sector];
+                }}
                 contentStyle={{
                   backgroundColor: 'white',
                   border: '1px solid black',

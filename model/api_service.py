@@ -506,6 +506,198 @@ def match(bill_type: str = Query(..., min_length=1), bill_number: int = Query(..
     })
 
 
+@app.get("/member_bills")
+def get_member_bills(
+    bioguide_id: str = Query(..., description="Bioguide ID of the congressman (e.g., 'P000197')"),
+    limit: int = Query(5, ge=1, le=20, description="Number of bills to return (max 20)"),
+    congress: Optional[int] = Query(None, description="Congress number (default: 119)")
+):
+    """
+    Fetch the most recent bills sponsored by a specific congressman.
+    Returns up to 'limit' bills (default 5, max 20) sorted by introduced date (most recent first).
+    """
+    congress_num = congress or CONGRESS
+    bioguide_id_upper = bioguide_id.upper().strip()
+    
+    if not bioguide_id_upper:
+        raise HTTPException(status_code=400, detail="bioguide_id is required")
+    
+    # Strategy: Fetch recent bills and check sponsors
+    # To be efficient, we fetch a smaller batch to reduce API calls
+    # Congress.gov API returns bills sorted by latest action, but we want by introduced date
+    # Reduce fetch_limit to avoid timeout - check fewer bills
+    fetch_limit = min(50, limit * 5)  # Fetch smaller batch to reduce timeout risk
+    
+    try:
+        # Fetch recent bills
+        url = "https://api.congress.gov/v3/bill"
+        r = _get(
+            url,
+            params={
+                "api_key": CONGRESS_API_KEY,
+                "format": "json",
+                "congress": congress_num,
+                "limit": fetch_limit,
+                "sort": "updateDate",  # Sort by update date
+                "sortOrder": "desc",
+            },
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Congress API error: {e}")
+    
+    data = r.json()
+    all_bills = data.get("bills", []) or []
+    
+    # Filter bills by sponsor bioguide ID
+    # We need to check each bill's detailed info to get sponsors
+    # Use shorter timeout per bill to avoid overall timeout
+    matching_bills = []
+    
+    # Import threading for parallel requests (optional optimization)
+    import concurrent.futures
+    
+    def check_bill_sponsor(bill, default_congress, bioguide_id_upper):
+        """Check if a bill is sponsored by the given bioguide ID"""
+        try:
+            bill_type = bill.get("type", "").lower()
+            bill_number = bill.get("number")
+            
+            if not bill_type or not bill_number:
+                return None
+            
+            # Get congress from bill object if available, otherwise use default
+            bill_congress = bill.get("congress") or default_congress
+            
+            # Try fetching with the bill's congress number, fallback to nearby congresses if 404
+            congresses_to_try = [bill_congress]
+            if bill_congress != default_congress:
+                congresses_to_try.append(default_congress)
+            # Add nearby congresses as fallback (try 1-2 congresses earlier)
+            if bill_congress > 115:
+                congresses_to_try.extend([bill_congress - 1, bill_congress - 2])
+            
+            bill_detail = None
+            for congress_num_attempt in congresses_to_try:
+                try:
+                    # Fetch bill details to get sponsor info with shorter timeout
+                    bill_detail_url = f"https://api.congress.gov/v3/bill/{congress_num_attempt}/{bill_type}/{bill_number}"
+                    bill_detail_resp = _get(
+                        bill_detail_url,
+                        params={
+                            "api_key": CONGRESS_API_KEY,
+                            "format": "json",
+                        },
+                        timeout=5,  # 5 second timeout per bill
+                    )
+                    bill_detail = bill_detail_resp.json()
+                    
+                    # Check if we got an error response
+                    if "error" in bill_detail:
+                        continue  # Try next congress number
+                    
+                    # Successfully fetched, break out of loop
+                    break
+                except Exception as e:
+                    # If it's a 404, try next congress number
+                    if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
+                        continue
+                    # For other errors, log and continue to next congress
+                    print(f"Error fetching bill {bill_type}.{bill_number} from Congress {congress_num_attempt}: {e}")
+                    continue
+            
+            if not bill_detail or "error" in bill_detail:
+                # Could not find bill in any congress we tried
+                return None
+            
+            # Check if any sponsor matches
+            sponsors = bill_detail.get("sponsors", []) or []
+            is_sponsored = any(
+                sponsor.get("bioguideId", "").upper() == bioguide_id_upper
+                for sponsor in sponsors
+            )
+            
+            if is_sponsored:
+                # Get status
+                actions = bill_detail.get("actions", []) or []
+                latest_action = bill_detail.get("latestAction", {})
+                latest_action_text = latest_action.get("text", "")
+                
+                status = determine_bill_status(actions, latest_action_text)
+                
+                # Build result
+                normalized_type = normalize_bill_type(bill_type).upper()
+                bill_id = f"{normalized_type}.{bill_number}"
+                
+                return {
+                    "bill_id": bill_id,
+                    "title": bill_detail.get("title") or bill.get("title"),
+                    "introduced_date": bill_detail.get("introducedDate") or bill.get("introducedDate"),
+                    "latest_action": {
+                        "date": latest_action.get("actionDate") or bill_detail.get("introducedDate"),
+                        "text": latest_action_text,
+                    },
+                    "status": status,
+                    "cosponsors_count": (bill_detail.get("cosponsors") or {}).get("count", 0),
+                    "url": bill_detail.get("url") or bill.get("url"),
+                    "summary": bill_detail.get("summary", {}).get("text", "") if isinstance(bill_detail.get("summary"), dict) else "",
+                    "committees": [
+                        c.get("name", "") 
+                        for c in (bill_detail.get("committees", []) or [])
+                    ],
+                }
+            
+            return None
+        except Exception as e:
+            # Skip bills that fail to fetch (might be invalid or missing)
+            print(f"Error processing bill {bill.get('type', 'unknown')}.{bill.get('number', 'unknown')}: {e}")
+            return None
+    
+    # Process bills with limited concurrency to avoid overwhelming the API
+    # Use ThreadPoolExecutor with max 5 concurrent requests
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit all bill checks
+        future_to_bill = {
+            executor.submit(check_bill_sponsor, bill, congress_num, bioguide_id_upper): bill
+            for bill in all_bills[:fetch_limit]  # Only check the first fetch_limit bills
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_bill):
+            if len(matching_bills) >= limit:
+                # Cancel remaining tasks if we have enough (best effort - may not cancel running tasks)
+                for f in future_to_bill:
+                    if not f.done():
+                        f.cancel()
+                break
+                
+            try:
+                result = future.result(timeout=10)  # 10 second timeout per future
+                if result:
+                    matching_bills.append(result)
+            except concurrent.futures.CancelledError:
+                # Task was cancelled, skip it
+                continue
+            except Exception as e:
+                print(f"Error processing bill: {e}")
+                continue
+    
+    # Sort by introduced date (most recent first)
+    matching_bills.sort(
+        key=lambda x: x.get("introduced_date") or "", 
+        reverse=True
+    )
+    
+    # Limit results
+    results = matching_bills[:limit]
+    
+    return {
+        "count": len(results),
+        "bioguide_id": bioguide_id_upper,
+        "congress": congress_num,
+        "bills": results,
+    }
+
+
 @app.get("/recent_bills")
 def recent_bills(
     limit: int = Query(10, ge=1, le=100, description="Number of bills to return"),
