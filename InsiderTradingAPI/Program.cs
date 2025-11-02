@@ -433,10 +433,6 @@ app.MapPost("/simulate-trade/{bioGuideId}/{ticker}",
             });
 });
 
-app.MapGet("/get-prediction/{billId}", async (string billId) => {
-    return await TradeSyncService.AskHardik(billId);
-});
-
 app.Run();
 
 public record CongressionalTradeLiveResponse(

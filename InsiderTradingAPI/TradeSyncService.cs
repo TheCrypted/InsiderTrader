@@ -139,17 +139,11 @@ public sealed class TradeSyncService : BackgroundService
         foreach (var trade in toInsert) {
             List<string> bills = await GetRelevantBills(trade.bioGuideId, trade.ticker);
             foreach (var billId in bills) {
-                double modelResponse = AskHardik(billId);
-                var notification = new TradeOrLobbyingNotification(billId, 
-                    modelResponse, DateTime.Now);
+                var notification = new TradeOrLobbyingNotification(billId, DateTime.Now);
                 await _hub.Clients.All.SendAsync("TradeOrLobbyingActivity", notification);
                 _logger.LogInformation("Broadcast new data to frontend about bill {billId}.", billId);
             }
         }
-    }
-
-    public static async Task<double> AskHardik(string billId) { // todo
-        return 55.0;
     }
 
     public async Task<List<string>> GetRelevantBills(string politicianId, string companyTicker) { // todo
@@ -278,5 +272,5 @@ public sealed class TradeSyncService : BackgroundService
 
 public sealed class TradeSyncOptions
 {
-    public int IntervalMS { get; set; } = 3000;
+    public int IntervalMS { get; set; } = 2000;
 }
