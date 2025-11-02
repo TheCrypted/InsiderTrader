@@ -18,13 +18,19 @@ export default function Header() {
           </div>
         </Link>
 
-        {/* Browse Button */}
-        <div className="flex items-stretch h-full pr-16">
+        {/* Browse and Graph Buttons */}
+        <div className="flex items-stretch h-full pr-16 gap-0">
           <Link
             to="/browse"
             className="flex items-center px-4 py-2 bg-black text-white font-normal hover:bg-stone-900 transition-all duration-200"
           >
             Browse All
+          </Link>
+          <Link
+            to="/graph"
+            className="flex items-center px-4 py-2 bg-black text-white font-normal hover:bg-stone-900 transition-all duration-200"
+          >
+            Graph
           </Link>
         </div>
       </nav>

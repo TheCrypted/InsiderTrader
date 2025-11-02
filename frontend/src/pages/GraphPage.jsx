@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import ForceGraph2D from 'react-force-graph-2d';
 import Header from '../components/Header';
 import { graphNodes as mockGraphNodes, graphLinks as mockGraphLinks, nodeColors, sectorColors } from '../utils/graphData';
-import { getRecentBills, getAllRepresentativesBasic, loadTradesForBatch } from '../utils/api';
+import { getRecentBills, getAllRepresentativesBasic, loadTradesForBatch, getGraphData } from '../utils/api';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 
@@ -15,132 +15,210 @@ const GraphPage = () => {
   const [apiNodes, setApiNodes] = useState([]);
   const [apiLinks, setApiLinks] = useState([]);
 
-  // Fetch API data on mount
+  // Fetch graph data from /graph endpoint
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        console.log('Fetching graph data from APIs...');
+        console.log('Fetching graph data from /graph endpoint...');
         
-        // Fetch bills and congressmen in parallel
-        const [billsResponse, congressmenResponse] = await Promise.all([
-          getRecentBills(),
-          getAllRepresentativesBasic()
-        ]);
+        // Fetch graph data from API (includes nodes and edges)
+        // Don't pass any limits - let API return all available data
+        const graphResponse = await getGraphData();
         
-        console.log(`Fetched ${billsResponse.length} bills and ${congressmenResponse.length} congressmen`);
+        if (graphResponse.nodes.length === 0 && graphResponse.edges.length === 0) {
+          console.log('No graph data from API, using mock data as fallback');
+          setApiNodes([]);
+          setApiLinks([]);
+          setLoading(false);
+          return;
+        }
         
-        // Transform bills into graph node format
-        const billNodes = billsResponse.map((bill, index) => {
-          // Extract sector from title (simple heuristic - can be improved)
-          const titleLower = (bill.title || '').toLowerCase();
-          let sector = 'Business';
-          if (titleLower.includes('tech') || titleLower.includes('digital') || titleLower.includes('data') || titleLower.includes('ai')) {
-            sector = 'Technology';
-          } else if (titleLower.includes('health') || titleLower.includes('medicare') || titleLower.includes('medical')) {
-            sector = 'Healthcare';
-          } else if (titleLower.includes('energy') || titleLower.includes('oil') || titleLower.includes('renewable')) {
-            sector = 'Energy';
-          } else if (titleLower.includes('financial') || titleLower.includes('bank') || titleLower.includes('tax')) {
-            sector = 'Financials';
-          } else if (titleLower.includes('defense') || titleLower.includes('military') || titleLower.includes('security')) {
-            sector = 'Defense';
-          }
-          
-          // Use bill_id as id, ensure it matches format
-          const billId = bill.bill_id || `BILL${index}`;
-          
-          return {
-            id: billId,
-            type: 'bill',
-            title: bill.title || 'Untitled Bill',
-            status: bill.latest_action?.text || 'Pending',
-            sector: sector,
-            date: bill.latest_action?.date || new Date().toISOString().split('T')[0],
-            cosponsors: Math.floor(Math.random() * 50) + 10, // Mock cosponsor count (API doesn't provide)
-            corporateSupport: Math.floor(Math.random() * 2000000) + 500000, // Mock support
-            committees: [], // Mock committees
-            size: Math.floor(Math.random() * 30) + 20, // Size based on cosponsors
-            url: bill.url
-          };
-        });
+        console.log(`Fetched ${graphResponse.nodes.length} nodes and ${graphResponse.edges.length} edges from /graph endpoint`);
         
-        // Transform congressmen into graph node format
-        // First, get trade stats for a sample of congressmen (top 50 by activity for performance)
-        const sampleSize = Math.min(50, congressmenResponse.length);
-        const congressmenWithTrades = await loadTradesForBatch(
-          congressmenResponse.slice(0, sampleSize)
-        );
+        if (graphResponse.nodes.length === 0) {
+          console.error('No nodes received from API!');
+          setLoading(false);
+          return;
+        }
         
-        // Map all congressmen, using trade stats where available
-        const congressmanMap = new Map();
-        congressmenWithTrades.forEach(rep => {
-          congressmanMap.set(rep.id, rep);
-        });
-        
-        const congressmanNodes = congressmenResponse.map((rep) => {
-          const repWithTrades = congressmanMap.get(rep.id) || rep;
-          
-          // Calculate size based on trade volume and total trades
-          const tradeVolume = repWithTrades.tradeVolume || 0;
-          const totalTrades = repWithTrades.totalTrades || 0;
-          const size = Math.min(50, Math.max(10, Math.sqrt(tradeVolume / 1000000) + (totalTrades / 5)));
-          
-          // Get net worth from mock data if available (API doesn't provide)
-          const mockData = mockGraphNodes.find(n => n.type === 'congressman' && n.id === rep.id);
-          
-          return {
-            id: rep.id,
-            type: 'congressman',
-            name: rep.name,
-            party: rep.party,
-            chamber: rep.chamber,
-            state: rep.state,
-            image: rep.image,
-            netWorth: mockData?.netWorth || Math.floor(Math.random() * 50000000) + 1000000,
-            tradeVolume: tradeVolume,
-            totalTrades: totalTrades,
-            size: size
-          };
-        });
-        
-        // Combine API nodes
-        const allApiNodes = [...congressmanNodes, ...billNodes];
-        setApiNodes(allApiNodes);
-        
-        // Create links between bills and congressmen
-        // For now, create random connections (in the future, this could use actual sponsor/cosponsor data)
-        const links = [];
-        const apiCongressmanIds = congressmanNodes.map(c => c.id);
-        const apiBillIds = billNodes.map(b => b.id);
-        
-        // Create some sponsor links (random assignment for now)
-        apiBillIds.forEach((billId, index) => {
-          if (apiCongressmanIds.length > 0) {
-            const sponsorIndex = index % apiCongressmanIds.length;
-            links.push({
-              source: apiCongressmanIds[sponsorIndex],
-              target: billId,
-              type: 'sponsor',
-              strength: 1.0
-            });
-            
-            // Add a few random cosponsors per bill
-            const numCosponsors = Math.floor(Math.random() * 5) + 2;
-            for (let i = 0; i < numCosponsors && i < apiCongressmanIds.length - 1; i++) {
-              const cosponsorIndex = (sponsorIndex + i + 1) % apiCongressmanIds.length;
-              links.push({
-                source: apiCongressmanIds[cosponsorIndex],
-                target: billId,
-                type: 'cosponsor',
-                strength: 0.5 + Math.random() * 0.3
-              });
+        // Transform API nodes to match expected format
+        const transformedNodes = graphResponse.nodes.map((node) => {
+          if (node.type === 'bill') {
+            // Extract sector from policy_area or infer from label
+            const policyArea = node.policy_area || '';
+            const labelLower = (node.label || '').toLowerCase();
+            let sector = 'General';
+            if (policyArea.includes('Technology') || policyArea.includes('Science') || labelLower.includes('tech') || labelLower.includes('digital') || labelLower.includes('ai')) {
+              sector = 'Technology';
+            } else if (policyArea.includes('Health') || policyArea.includes('Medical') || labelLower.includes('health')) {
+              sector = 'Healthcare';
+            } else if (policyArea.includes('Energy') || policyArea.includes('Environment') || labelLower.includes('energy')) {
+              sector = 'Energy';
+            } else if (policyArea.includes('Finance') || policyArea.includes('Banking') || labelLower.includes('financial')) {
+              sector = 'Financials';
+            } else if (policyArea.includes('Defense') || policyArea.includes('Military') || labelLower.includes('defense')) {
+              sector = 'Defense';
+            } else if (policyArea.includes('Business') || labelLower.includes('business')) {
+              sector = 'Business';
             }
+            
+            // Extract bill ID from id format "bill:S.1241"
+            const billId = node.bill_id || node.id.replace('bill:', '');
+            
+            return {
+              id: node.id, // Keep original id format for linking
+              billId: billId, // Also store normalized bill ID
+              type: 'bill',
+              title: node.label || billId,
+              status: 'Pending', // API doesn't provide status
+              sector: sector,
+              date: node.introduced_date || new Date().toISOString().split('T')[0],
+              cosponsors: 0, // API doesn't provide in nodes
+              policy_area: node.policy_area,
+              corporateSupport: 0, // Not provided by API
+              committees: [],
+              size: 20, // Default size, can be calculated based on edges later
+            };
+          } else if (node.type === 'person') {
+            // Extract bioguide_id from id format "person:G000359"
+            const bioguideId = node.bioguide_id || node.id.replace('person:', '');
+            
+            // Parse name from label like "Sen. Graham, Lindsey [R-SC] (R-SC)"
+            // Or "Rep. Smith, John [D-CA-5] (D-CA-5)"
+            let name = 'Unknown';
+            if (node.label) {
+              // Try to extract name - usually before the first bracket or parenthesis
+              const nameMatch = node.label.match(/^(Sen\.|Rep\.)\s+(.+?)(?:\s+\[|$)/);
+              if (nameMatch && nameMatch[2]) {
+                name = nameMatch[2].trim();
+              } else {
+                // Fallback: split by '(' or '[' and take first part
+                name = node.label.split(/[\[\(]/)[0].replace(/^(Sen\.|Rep\.)\s+/, '').trim();
+              }
+            }
+            
+            // Map party: R -> Republican, D -> Democratic, I -> Independent, etc.
+            let party = node.party;
+            if (party === 'R') {
+              party = 'Republican';
+            } else if (party === 'D') {
+              party = 'Democratic';
+            } else if (party === 'I') {
+              party = 'Independent';
+            }
+            
+            // Determine chamber: district === null means Senate, otherwise House
+            const chamber = node.district === null ? 'Senate' : 'House';
+            
+            return {
+              id: node.id, // Keep original id format for linking (e.g., "person:G000359")
+              bioguideId: bioguideId, // Store for fetching additional data (e.g., "G000359")
+              type: 'congressman',
+              name: name,
+              party: party, // Full party name for color mapping
+              chamber: chamber,
+              state: node.state || 'Unknown',
+              district: node.district,
+              image: null, // Will be fetched separately if needed
+              netWorth: 0, // Not provided by API
+              tradeVolume: 0, // Not provided by API
+              totalTrades: 0, // Not provided by API
+              size: 15, // Default size, will be updated based on edge count
+            };
+          }
+          console.warn(`Unknown node type: ${node.type}`, node);
+          return null;
+        }).filter(Boolean); // Remove any null entries
+        
+        console.log(`Transformed ${transformedNodes.length} nodes (filtered from ${graphResponse.nodes.length} original nodes)`);
+        
+        // Count edges per node to calculate sizes
+        const nodeEdgeCounts = {};
+        graphResponse.edges.forEach(edge => {
+          nodeEdgeCounts[edge.source] = (nodeEdgeCounts[edge.source] || 0) + 1;
+          nodeEdgeCounts[edge.target] = (nodeEdgeCounts[edge.target] || 0) + 1;
+        });
+        
+        // Update node sizes based on edge connections
+        transformedNodes.forEach(node => {
+          const edgeCount = nodeEdgeCounts[node.id] || 0;
+          if (node.type === 'bill') {
+            node.size = Math.min(40, Math.max(15, 15 + edgeCount * 2));
+          } else {
+            node.size = Math.min(30, Math.max(10, 10 + edgeCount * 1.5));
           }
         });
         
-        setApiLinks(links);
-        console.log(`Created ${links.length} links between ${allApiNodes.length} nodes`);
+        setApiNodes(transformedNodes);
+        
+        // Transform edges to match expected format
+        const transformedLinks = graphResponse.edges.map(edge => ({
+          source: edge.source,
+          target: edge.target,
+          type: edge.relation || 'cosponsor', // 'sponsor' or 'cosponsor'
+          strength: edge.relation === 'sponsor' ? 1.0 : 0.6, // Sponsor links stronger
+        }));
+        
+        console.log(`Transformed ${transformedLinks.length} links (from ${graphResponse.edges.length} original edges)`);
+        
+        // Validate that link sources/targets exist in transformed nodes
+        const nodeIdSet = new Set(transformedNodes.map(n => n.id));
+        
+        // Log sample node IDs and link IDs for debugging
+        if (transformedNodes.length > 0) {
+          console.log(`Sample node IDs (first 5):`, transformedNodes.slice(0, 5).map(n => n.id));
+        }
+        if (transformedLinks.length > 0) {
+          console.log(`Sample link source/target IDs (first 5):`, transformedLinks.slice(0, 5).map(l => `${l.source} -> ${l.target}`));
+        }
+        
+        // Check for format mismatches
+        const sampleLink = transformedLinks[0];
+        if (sampleLink) {
+          const linkHasBillFormat = sampleLink.target?.startsWith('bill:') || sampleLink.source?.startsWith('bill:');
+          const linkHasPersonFormat = sampleLink.target?.startsWith('person:') || sampleLink.source?.startsWith('person:');
+          const nodeHasBillFormat = transformedNodes.some(n => n.id.startsWith('bill:'));
+          const nodeHasPersonFormat = transformedNodes.some(n => n.id.startsWith('person:'));
+          
+          if ((linkHasBillFormat || linkHasPersonFormat) && (nodeHasBillFormat || nodeHasPersonFormat)) {
+            console.log(`✓ Link and node ID formats match (using "bill:" and "person:" prefixes)`);
+          } else {
+            console.error(`❌ FORMAT MISMATCH! Links use "${sampleLink.source}" format, but nodes use different format!`);
+          }
+        }
+        
+        // Count how many links match vs don't match
+        let validCount = 0;
+        let invalidCount = 0;
+        const firstInvalidLinks = [];
+        
+        const validLinks = transformedLinks.filter(link => {
+          const hasSource = nodeIdSet.has(link.source);
+          const hasTarget = nodeIdSet.has(link.target);
+          if (!hasSource || !hasTarget) {
+            invalidCount++;
+            if (invalidCount <= 5) {
+              firstInvalidLinks.push({ source: link.source, target: link.target, hasSource, hasTarget });
+            }
+            return false;
+          }
+          validCount++;
+          return true;
+        });
+        
+        if (invalidCount > 0) {
+          console.error(`❌ ${invalidCount} invalid links found (${validCount} valid)!`);
+          console.error(`   First 5 invalid links:`, firstInvalidLinks);
+          console.error(`   Sample valid node IDs:`, Array.from(nodeIdSet).slice(0, 10));
+        } else {
+          console.log(`✓ All ${validLinks.length} links are valid!`);
+        }
+        
+        // IMPORTANT: Only set links if we have valid ones, otherwise empty array
+        // This prevents mixing API nodes with mock links later
+        setApiLinks(validLinks);
+        console.log(`Final: ${transformedNodes.length} nodes and ${validLinks.length} links`);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching graph data:', error);
@@ -157,8 +235,16 @@ const GraphPage = () => {
   // Group nodes for better clustering
   const getNodeGroup = (node) => {
     if (node.type === 'congressman') {
-      // Group congressmen by party
-      return node.party === 'Democratic' ? 'dem' : 'rep';
+      // Group congressmen by party (handle both full names and abbreviations)
+      const party = node.party || '';
+      if (party === 'Democratic' || party === 'D') {
+        return 'dem';
+      } else if (party === 'Republican' || party === 'R') {
+        return 'rep';
+      } else if (party === 'Independent' || party === 'I') {
+        return 'ind'; // Independent
+      }
+      return 'rep'; // Default to rep for unknown parties
     } else {
       // Group bills by sector
       return node.sector || 'other';
@@ -170,12 +256,14 @@ const GraphPage = () => {
     const groups = {
       dem: { angle: Math.PI / 4, radius: 200 },
       rep: { angle: (3 * Math.PI) / 4, radius: 200 },
+      ind: { angle: Math.PI / 2, radius: 180 }, // Independent (smaller group)
       Technology: { angle: -Math.PI / 4, radius: 250 },
       Financials: { angle: -Math.PI / 2, radius: 250 },
       Energy: { angle: Math.PI / 2, radius: 250 },
       Healthcare: { angle: Math.PI, radius: 250 },
       Business: { angle: (5 * Math.PI) / 4, radius: 250 },
       Defense: { angle: (7 * Math.PI) / 4, radius: 250 },
+      General: { angle: 0, radius: 250 },
       other: { angle: 0, radius: 200 }
     };
     return groups;
@@ -183,9 +271,54 @@ const GraphPage = () => {
 
   // Prepare graph data with positions and relationships
   const graphData = useMemo(() => {
-    // Combine API nodes with mock nodes (prioritize API data, fall back to mock)
-    const combinedNodes = apiNodes.length > 0 ? apiNodes : mockGraphNodes;
-    const combinedLinks = apiLinks.length > 0 ? apiLinks : mockGraphLinks;
+    // CRITICAL: NEVER mix API nodes with mock links or vice versa - they have different ID formats!
+    // API nodes use IDs like "bill:S.1241", "person:G000359"
+    // Mock links use IDs like "H.R.1234", "P000197" - they won't match!
+    
+    let combinedNodes, combinedLinks;
+    
+    console.log(`\n=== GRAPH DATA PREPARATION ===`);
+    console.log(`API nodes: ${apiNodes.length}, API links: ${apiLinks.length}`);
+    console.log(`Mock nodes: ${mockGraphNodes.length}, Mock links: ${mockGraphLinks.length}`);
+    
+    if (apiNodes.length > 0) {
+      // We have API nodes - MUST use API links only (even if empty), NEVER mock links
+      combinedNodes = apiNodes;
+      combinedLinks = apiLinks; // Use API links even if empty (better than wrong format mock links)
+      
+      // Verify we're not accidentally using mock links
+      if (apiLinks.length === 0 && mockGraphLinks.length > 0) {
+        console.warn('⚠ WARNING: Have API nodes but NO valid API links. Using empty links array (NOT mock links).');
+        console.warn(`  This means all ${apiLinks.length} API links were filtered out during validation.`);
+        if (apiNodes.length > 0) {
+          console.warn(`  Sample API node IDs:`, apiNodes.slice(0, 5).map(n => n.id));
+        }
+      } else if (apiLinks.length > 0) {
+        console.log('✓ Using API nodes with API links (matching ID formats)');
+      }
+    } else {
+      // No API nodes - use mock data (nodes + links have matching ID formats)
+      combinedNodes = mockGraphNodes;
+      combinedLinks = mockGraphLinks;
+      console.log('Using MOCK data (API fetch may have failed or returned no data)');
+    }
+    
+    // Final validation: Check if we're accidentally mixing formats
+    if (combinedNodes.length > 0 && combinedLinks.length > 0) {
+      const sampleNodeId = combinedNodes[0].id;
+      const sampleLinkSource = combinedLinks[0].source;
+      const hasPrefixMatch = (sampleNodeId.startsWith('bill:') || sampleNodeId.startsWith('person:')) === 
+                             (sampleLinkSource.startsWith('bill:') || sampleLinkSource.startsWith('person:'));
+      if (!hasPrefixMatch) {
+        console.error(`❌ CRITICAL: Format mismatch detected!`);
+        console.error(`   Node ID format: ${sampleNodeId}`);
+        console.error(`   Link source format: ${sampleLinkSource}`);
+        console.error(`   This will cause all links to be invalid!`);
+      }
+    }
+    
+    console.log(`Final: ${combinedNodes.length} nodes (${apiNodes.length > 0 ? 'API' : 'MOCK'}) and ${combinedLinks.length} links (${apiLinks.length > 0 ? 'API' : 'MOCK'})`);
+    console.log(`=== END GRAPH DATA PREPARATION ===\n`);
     
     // Normalize node sizes (scale between 8 and 40)
     const sizes = combinedNodes.map(n => n.size || 10);
@@ -234,8 +367,8 @@ const GraphPage = () => {
         normalizedSize: normalizeSize(node.size || 10),
         // Color based on type
         color: node.type === 'congressman' 
-          ? nodeColors.congressman[node.party]
-          : sectorColors[node.sector] || nodeColors.bill,
+          ? (nodeColors.congressman[node.party] || (node.party === 'Republican' || node.party === 'R' ? nodeColors.congressman.Republican : nodeColors.congressman.Democratic))
+          : (sectorColors[node.sector] || nodeColors.bill),
         // Group for clustering
         group: group,
         // Add visual properties
@@ -244,13 +377,38 @@ const GraphPage = () => {
       };
     });
 
-    const links = combinedLinks.map(link => ({
-      ...link,
-      source: typeof link.source === 'string' ? link.source : link.source.id,
-      target: typeof link.target === 'string' ? link.target : link.target.id,
-      // Visual link properties
-      opacity: link.strength * 0.8
-    }));
+    // Create a map of node IDs for quick lookup to validate links
+    const nodeIdMap = new Map(combinedNodes.map(n => [n.id, n]));
+    
+    const links = combinedLinks
+      .map(link => {
+        // Ensure source and target are string IDs
+        const sourceId = typeof link.source === 'string' ? link.source : (link.source?.id || link.source);
+        const targetId = typeof link.target === 'string' ? link.target : (link.target?.id || link.target);
+        
+        // Only include links where both nodes exist (prevents broken links)
+        if (!sourceId || !targetId) {
+          console.warn(`Skipping link with missing IDs: source=${sourceId}, target=${targetId}`);
+          return null;
+        }
+        if (!nodeIdMap.has(sourceId)) {
+          console.warn(`Skipping link - source node missing: ${sourceId}`);
+          return null;
+        }
+        if (!nodeIdMap.has(targetId)) {
+          console.warn(`Skipping link - target node missing: ${targetId}`);
+          return null;
+        }
+        
+        return {
+          ...link,
+          source: sourceId,
+          target: targetId,
+          // Visual link properties
+          opacity: (link.strength || 0.6) * 0.8
+        };
+      })
+      .filter(Boolean); // Remove any null links
 
     return { nodes, links };
   }, [groupPositions, apiNodes, apiLinks]);
@@ -295,15 +453,19 @@ const GraphPage = () => {
 
   const getNodeLabel = (node) => {
     if (node.type === 'congressman') {
-      return node.name;
+      return node.name || node.id.replace('person:', '');
     }
-    return node.id;
+    // For bills, use billId if available, otherwise extract from id
+    return node.billId || node.id.replace('bill:', '');
   };
 
   const getNodeDetails = (node) => {
     if (!node) return null;
 
     if (node.type === 'congressman') {
+      // Use bioguideId for link if available, otherwise use id (which might be "person:XXXXX")
+      const congressmanId = node.bioguideId || node.id.replace('person:', '');
+      
       return (
         <div className="p-4 bg-white rounded-lg shadow-lg border-2 border-gray-200 max-w-sm">
           <div className="flex items-start gap-3 mb-3">
@@ -326,19 +488,19 @@ const GraphPage = () => {
           <div className="grid grid-cols-2 gap-3 text-sm border-t border-gray-200 pt-3">
             <div>
               <span className="text-gray-500">Net Worth:</span>
-              <div className="font-semibold text-gray-900">{formatCurrency(node.netWorth)}</div>
+              <div className="font-semibold text-gray-900">{node.netWorth > 0 ? formatCurrency(node.netWorth) : 'N/A'}</div>
             </div>
             <div>
               <span className="text-gray-500">Trade Volume:</span>
-              <div className="font-semibold text-gray-900">{formatCurrency(node.tradeVolume)}</div>
+              <div className="font-semibold text-gray-900">{node.tradeVolume > 0 ? formatCurrency(node.tradeVolume) : 'N/A'}</div>
             </div>
             <div>
               <span className="text-gray-500">Total Trades:</span>
-              <div className="font-semibold text-gray-900">{node.totalTrades}</div>
+              <div className="font-semibold text-gray-900">{node.totalTrades > 0 ? node.totalTrades : 'N/A'}</div>
             </div>
             <div>
               <Link
-                to={`/congressman/${node.id}/trading`}
+                to={`/congressman/${congressmanId}/trading`}
                 className="text-xs c-btn c-btn--yellow px-3 py-1 mt-2 inline-block"
               >
                 View Profile →
@@ -348,36 +510,41 @@ const GraphPage = () => {
         </div>
       );
     } else {
+      // Use billId for link if available, otherwise extract from id (which might be "bill:S.1241")
+      const billId = node.billId || node.id.replace('bill:', '').replace(/^HR\./, 'H.R.').replace(/^S\./, 'S.');
+      
       return (
         <div className="p-4 bg-white rounded-lg shadow-lg border-2 border-gray-200 max-w-sm">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{node.id}</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">{billId}</h3>
           <p className="text-sm text-gray-700 mb-3">{node.title}</p>
           <div className="space-y-2 text-sm border-t border-gray-200 pt-3">
             <div className="flex justify-between">
               <span className="text-gray-500">Status:</span>
-              <span className="font-medium text-gray-900">{node.status}</span>
+              <span className="font-medium text-gray-900">{node.status || 'Pending'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Cosponsors:</span>
-              <span className="font-medium text-gray-900">{node.cosponsors}</span>
+              <span className="font-medium text-gray-900">{node.cosponsors > 0 ? node.cosponsors : 'N/A'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Sector:</span>
-              <span className="font-medium text-gray-900">{node.sector}</span>
+              <span className="font-medium text-gray-900">{node.sector || node.policy_area || 'General'}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Corporate Support:</span>
-              <span className="font-medium text-gray-900">{formatCurrency(node.corporateSupport)}</span>
-            </div>
+            {node.policy_area && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Policy Area:</span>
+                <span className="font-medium text-gray-900">{node.policy_area}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-500">Date:</span>
               <span className="font-medium text-gray-900">
-                {new Date(node.date).toLocaleDateString()}
+                {node.date ? new Date(node.date).toLocaleDateString() : 'N/A'}
               </span>
             </div>
             <div className="pt-2">
               <Link
-                to={`/legislation/${node.id}/bet`}
+                to={`/legislation/${billId}/bet`}
                 className="text-xs c-btn c-btn--yellow px-3 py-1 inline-block"
               >
                 Predict Outcome →
@@ -395,8 +562,14 @@ const GraphPage = () => {
       <div className="min-h-screen bg-gresearch-grey-200">
         <Header />
         <Container>
-          <div className="flex items-center justify-center min-h-[80vh]">
+          <div className="flex flex-col items-center justify-center min-h-[80vh] gap-6">
             <LoadingSpinner size="lg" />
+            <div className="text-center">
+              <p className="text-lg font-semibold text-gray-900 mb-2">Constructing Knowledge Graph</p>
+              <p className="text-sm text-gray-600">
+                This may take up to 30 seconds while we fetch all bills, congressmen, and their relationships...
+              </p>
+            </div>
           </div>
         </Container>
       </div>
@@ -630,7 +803,8 @@ const GraphPage = () => {
                 <span className="text-gray-600">Bills</span>
               </div>
               <div className="pt-2 border-t border-gray-200 mt-2">
-                <div className="text-gray-500 text-xs">Size = Activity/Support</div>
+                <div className="text-gray-500 text-xs">Nodes: {filteredData.nodes.length} | Links: {filteredData.links.length}</div>
+                <div className="text-gray-500 text-xs mt-1">Size = Activity/Support</div>
               </div>
             </div>
           </div>
