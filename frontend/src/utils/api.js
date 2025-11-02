@@ -1061,5 +1061,97 @@ export const getGraphData = async () => {
   }
 };
 
+// NY Times Top Stories API Client
+// ============================================
+const NYTIMES_API_KEY = import.meta.env.VITE_NYTIMES_API_KEY;
+const NYTIMES_API_BASE_URL = 'https://api.nytimes.com/svc/topstories/v2';
+
+// Fetch top stories from NY Times API
+export const getNYTimesTopStories = async (section = 'home') => {
+  try {
+    const response = await axios.get(`${NYTIMES_API_BASE_URL}/${section}.json`, {
+      params: {
+        'api-key': NYTIMES_API_KEY,
+      },
+      timeout: 10000, // 10 second timeout
+    });
+
+    if (response.data && response.data.results && Array.isArray(response.data.results)) {
+      // Transform NY Times articles to our format
+      return response.data.results.map((article, index) => {
+        // Get the image from multimedia array (prefer the largest one)
+        let imageUrl = null;
+        if (article.multimedia && article.multimedia.length > 0) {
+          // Find the largest image (typically the last one in the array)
+          const images = article.multimedia.filter(m => m.type === 'image');
+          if (images.length > 0) {
+            // Try to find a standard thumbnail, or use the largest
+            const standardImage = images.find(img => img.subtype === 'thumbnail') || 
+                                 images.find(img => img.subtype === 'largeHorizontal375') ||
+                                 images.find(img => img.subtype === 'largeHorizontalJumbo') ||
+                                 images[images.length - 1];
+            imageUrl = standardImage?.url ? `https://static01.nyt.com/${standardImage.url}` : null;
+          }
+        }
+
+        // Format published date to relative time
+        const formatTimeAgo = (dateString) => {
+          if (!dateString) return 'Recently';
+          const date = new Date(dateString);
+          const now = new Date();
+          const diffMs = now - date;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+
+          if (diffMins < 60) return `${diffMins} minutes ago`;
+          if (diffHours < 24) return `${diffHours} hours ago`;
+          if (diffDays < 7) return `${diffDays} days ago`;
+          return date.toLocaleDateString();
+        };
+
+        // Extract tags from facets (des_facet, org_facet, per_facet, geo_facet)
+        const tags = [];
+        if (article.des_facet && article.des_facet.length > 0) {
+          article.des_facet.slice(0, 3).forEach(facet => {
+            tags.push({ type: 'tag', label: facet });
+          });
+        }
+        if (article.org_facet && article.org_facet.length > 0) {
+          article.org_facet.slice(0, 2).forEach(facet => {
+            tags.push({ type: 'tag', label: facet });
+          });
+        }
+        if (article.per_facet && article.per_facet.length > 0) {
+          article.per_facet.slice(0, 2).forEach(facet => {
+            tags.push({ type: 'tag', label: facet });
+          });
+        }
+
+        return {
+          id: article.uri || `nyt-${index}`,
+          title: article.title || 'Untitled',
+          timestamp: formatTimeAgo(article.published_date),
+          category: article.section || 'News',
+          tags: tags,
+          imageUrl: imageUrl,
+          url: article.url,
+          abstract: article.abstract,
+          byline: article.byline,
+        };
+      });
+    }
+
+    return [];
+  } catch (error) {
+    console.error('Error fetching NY Times top stories:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    return [];
+  }
+};
+
 export default apiClient;
 
