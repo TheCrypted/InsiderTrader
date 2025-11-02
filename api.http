@@ -1,0 +1,28 @@
+@key="mi2jdMdZNMmUPpsk8Oqo2nrRaZL8uxRfNX2Pslgs"
+
+GET https://api.congress.gov/v3/bill/119/hr/4346/subjects?api_key=mi2jdMdZNMmUPpsk8Oqo2nrRaZL8uxRfNX2Pslgs HTTP/1.1
+
+accept: application/xml
+
+###
+GET https://lda.senate.gov/api/v1/filings/
+    ?ordering=filing_year
+    &filing_specific_lobbying_issues=H. Res.
+    # &filing_year=2025
+    # &client_name="3M Co."
+    &page=1
+    # &filing_amount_reported_min=1000.0
+    &page_size=25
+
+# &contribution_amount_min=1000.0
+Accept: application/json
+Authorization: Token f7d3bc016e5a169c8177d6e0b10fd32af1bbb7f7
+
+
+###
+GET https://lda.senate.gov/api/v1/clients/
+    ?client_name="ACE"
+
+Accept: application/json
+
+
