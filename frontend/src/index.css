@@ -54,4 +54,50 @@
   .animate-slide-in {
     animation: slideIn 0.4s ease-out;
   }
+
+  @keyframes scroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-scroll {
+    animation: scroll 60s linear infinite;
+    display: inline-flex;
+  }
+
+  @keyframes flashUp {
+    0% {
+      background-color: rgba(0, 100, 0, 0);
+    }
+    50% {
+      background-color: rgba(0, 100, 0, 0.4);
+    }
+    100% {
+      background-color: rgba(0, 100, 0, 0);
+    }
+  }
+
+  @keyframes flashDown {
+    0% {
+      background-color: rgba(100, 0, 0, 0);
+    }
+    50% {
+      background-color: rgba(100, 0, 0, 0.4);
+    }
+    100% {
+      background-color: rgba(100, 0, 0, 0);
+    }
+  }
+
+  .crypto-flash-up {
+    animation: flashUp 0.5s ease-out;
+  }
+
+  .crypto-flash-down {
+    animation: flashDown 0.5s ease-out;
+  }
 }

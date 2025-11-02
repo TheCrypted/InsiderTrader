@@ -5,6 +5,7 @@ import GraphPage from './pages/GraphPage'
 import BrowsePage from './pages/BrowsePage'
 import './App.css'
 import Header from './components/Header'
+import CryptoMarquee from './components/CryptoMarquee'
 import SearchSection from './components/SearchSection'
 import CongressmanGrid from './components/CongressmanGrid'
 import StockGrid from './components/StockGrid'
@@ -20,6 +21,9 @@ function App() {
     <div className="min-h-screen bg-white text-black">
       <Header />
       
+      {/* Crypto Market Data Marquee */}
+      <CryptoMarquee />
+      
       <main>
         {/* Top Half - Search Section */}
         <SearchSection onSearch={handleSearch} />
@@ -30,16 +34,16 @@ function App() {
         {/* Bottom Half - Two Column Layout */}
         <div className="container mx-auto px-6">
           <div className="flex gap-8 pb-12 pt-8">
-          {/* Left Grid - Congressmen */}
-          <div className="flex-1 border-black">
+          {/* Left Grid - Congressmen (35%) */}
+          <div className="flex-[0.35] border-black min-w-0">
             <CongressmanGrid />
           </div>
 
           {/* Divider - vertical line in the middle */}
           <div className="w-px bg-black"></div>
 
-          {/* Right Grid - Stock Movements and Live News */}
-          <div className="flex-1 border-black flex flex-col">
+          {/* Right Grid - Stock Movements and Live News (65%) */}
+          <div className="flex-[0.65] border-black flex flex-col min-w-0">
             <StockGrid />
             {/* Live News - Below Stock Movements in same column */}
             <div className="border-t border-black">
