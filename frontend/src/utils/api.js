@@ -425,6 +425,318 @@ export const getChartData = async (congressmanId) => {
 };
 
 // ============================================
+// Alpaca Market Data API Client
+// ============================================
+// API keys are stored in environment variables for security
+const ALPACA_API_KEY = import.meta.env.VITE_ALPACA_API_KEY;
+const ALPACA_SECRET = import.meta.env.VITE_ALPACA_SECRET;
+// Use proxy in development to avoid CORS issues, direct URL in production
+const ALPACA_DATA_BASE_URL = import.meta.env.DEV 
+  ? '/alpaca-api'  // Use vite proxy in development
+  : 'https://data.alpaca.markets/v2';  // Direct URL in production
+
+// Create axios instance for Alpaca API
+const alpacaDataClient = axios.create({
+  baseURL: ALPACA_DATA_BASE_URL,
+  headers: {
+    // Always set headers - they'll be used by proxy or direct connection
+    'APCA-API-KEY-ID': ALPACA_API_KEY,
+    'APCA-API-SECRET-KEY': ALPACA_SECRET,
+  },
+  timeout: 15000,
+});
+
+// Fetch stock bars from Alpaca API
+export const getStockBars = async (symbols, timeframe = '1Day', days = 5) => {
+  try {
+    // Calculate start date (days ago from yesterday to ensure we have market data)
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    // Start date should be at least days back, but ensure it's a valid date
+    const startDate = new Date(yesterday);
+    startDate.setDate(startDate.getDate() - days);
+    
+    // Format dates as YYYY-MM-DD (ISO format)
+    const formatDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // Build params - end date should be yesterday (not today, as markets may be closed)
+    // For daily bars, Alpaca suggests not including end date to get up to current day
+    const params = {
+      symbols: Array.isArray(symbols) ? symbols.join(',') : symbols,
+      timeframe: '1Day', // Use explicit format
+      start: formatDate(startDate),
+      // Don't include end date - let API default to latest available
+      limit: 1000,
+      adjustment: 'raw',
+      feed: 'sip',
+    };
+    
+    // Only include end if we specifically want yesterday (for historical data)
+    // Otherwise, let the API handle it
+    // params.end = formatDate(yesterday);
+
+    console.log('Fetching stock bars with params:', params);
+    console.log('Using baseURL:', alpacaDataClient.defaults.baseURL);
+    
+    // Try with proxy first (dev mode) or direct (production)
+    try {
+      const response = await alpacaDataClient.get('/stocks/bars', { params });
+      console.log('Successfully fetched stock bars:', response.data);
+      return response.data;
+    } catch (proxyError) {
+      console.error('Proxy request failed:', {
+        status: proxyError.response?.status,
+        statusText: proxyError.response?.statusText,
+        data: proxyError.response?.data,
+        url: proxyError.config?.url,
+      });
+      
+      // If proxy fails in dev, try direct connection as fallback
+      if (import.meta.env.DEV && (proxyError.response?.status === 401 || proxyError.response?.status === 400)) {
+        console.warn('Proxy request failed, trying direct connection...');
+        const directClient = axios.create({
+          baseURL: 'https://data.alpaca.markets/v2',
+          headers: {
+            'APCA-API-KEY-ID': ALPACA_API_KEY,
+            'APCA-API-SECRET-KEY': ALPACA_SECRET,
+          },
+          timeout: 15000,
+        });
+        
+        try {
+          const response = await directClient.get('/stocks/bars', { params });
+          console.log('Direct connection succeeded:', response.data);
+          return response.data;
+        } catch (directError) {
+          console.error('Direct connection also failed:', {
+            status: directError.response?.status,
+            statusText: directError.response?.statusText,
+            data: directError.response?.data,
+          });
+          throw directError;
+        }
+      }
+      throw proxyError;
+    }
+  } catch (error) {
+    console.error('Error fetching stock bars from Alpaca:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response headers:', error.response.headers);
+      console.error('Response data:', error.response.data);
+    } else {
+      console.error('Error message:', error.message);
+    }
+    return null;
+  }
+};
+
+// Get stock price for a specific date (historical)
+export const getStockPriceForDate = async (symbol, date) => {
+  try {
+    // Format date as YYYY-MM-DD
+    const formatDate = (dateObj) => {
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const targetDate = new Date(date);
+    const startDate = new Date(targetDate);
+    startDate.setDate(startDate.getDate() - 5); // Get 5 days before to ensure we have data
+    const endDate = new Date(targetDate);
+    endDate.setDate(endDate.getDate() + 1); // Get day after to include the target date
+
+    const params = {
+      symbols: symbol,
+      timeframe: '1Day',
+      start: formatDate(startDate),
+      end: formatDate(endDate),
+      limit: 10,
+      adjustment: 'raw',
+      feed: 'sip',
+    };
+
+    try {
+      const response = await alpacaDataClient.get('/stocks/bars', { params });
+      if (response.data && response.data.bars && response.data.bars[symbol]) {
+        const bars = response.data.bars[symbol];
+        if (bars && bars.length > 0) {
+          // Find the bar closest to the target date
+          const targetDateStr = formatDate(targetDate);
+          const bar = bars.find(b => {
+            const barDate = new Date(b.t).toISOString().split('T')[0];
+            return barDate === targetDateStr || barDate <= targetDateStr;
+          });
+          
+          // If exact date not found, use the closest date before or after
+          if (!bar && bars.length > 0) {
+            const sortedBars = [...bars].sort((a, b) => {
+              const dateA = new Date(a.t);
+              const dateB = new Date(b.t);
+              return Math.abs(dateA - targetDate) - Math.abs(dateB - targetDate);
+            });
+            return sortedBars[0].c; // Return close price
+          }
+          
+          return bar ? bar.c : null;
+        }
+      }
+    } catch (proxyError) {
+      // If proxy fails, try direct connection
+      if (import.meta.env.DEV && (proxyError.response?.status === 401 || proxyError.response?.status === 400)) {
+        const directClient = axios.create({
+          baseURL: 'https://data.alpaca.markets/v2',
+          headers: {
+            'APCA-API-KEY-ID': ALPACA_API_KEY,
+            'APCA-API-SECRET-KEY': ALPACA_SECRET,
+          },
+          timeout: 15000,
+        });
+        
+        const response = await directClient.get('/stocks/bars', { params });
+        if (response.data && response.data.bars && response.data.bars[symbol]) {
+          const bars = response.data.bars[symbol];
+          if (bars && bars.length > 0) {
+            const targetDateStr = formatDate(targetDate);
+            const bar = bars.find(b => {
+              const barDate = new Date(b.t).toISOString().split('T')[0];
+              return barDate === targetDateStr || barDate <= targetDateStr;
+            });
+            if (!bar && bars.length > 0) {
+              const sortedBars = [...bars].sort((a, b) => {
+                const dateA = new Date(a.t);
+                const dateB = new Date(b.t);
+                return Math.abs(dateA - targetDate) - Math.abs(dateB - targetDate);
+              });
+              return sortedBars[0].c;
+            }
+            return bar ? bar.c : null;
+          }
+        }
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching stock price for ${symbol} on ${date}:`, error);
+    return null;
+  }
+};
+
+// Get current stock prices for multiple symbols
+export const getCurrentStockPrices = async (symbols) => {
+  try {
+    if (!symbols || symbols.length === 0) return {};
+    
+    const response = await getStockBars(symbols, '1Day', 2);
+    
+    if (!response || !response.bars) {
+      return {};
+    }
+
+    const priceMap = {};
+    
+    Object.keys(response.bars).forEach(symbol => {
+      const bars = response.bars[symbol];
+      if (!bars || bars.length === 0) return;
+      
+      const sortedBars = [...bars].sort((a, b) => new Date(b.t) - new Date(a.t));
+      const latestBar = sortedBars[0];
+      
+      if (latestBar) {
+        priceMap[symbol] = latestBar.c; // close price
+      }
+    });
+    
+    return priceMap;
+  } catch (error) {
+    console.error('Error getting current stock prices:', error);
+    return {};
+  }
+};
+
+// Get stock price data for dashboard
+export const getStockData = async (symbols) => {
+  try {
+    // Request 5 days of data to ensure we have yesterday's data for comparison
+    const response = await getStockBars(symbols, '1Day', 5);
+    
+    if (!response || !response.bars) {
+      return {};
+    }
+
+    const stockDataMap = {};
+    
+    // Process each symbol's bars
+    Object.keys(response.bars).forEach(symbol => {
+      const bars = response.bars[symbol];
+      if (!bars || bars.length === 0) return;
+      
+      // Sort bars by timestamp (most recent first)
+      const sortedBars = [...bars].sort((a, b) => new Date(b.t) - new Date(a.t));
+      
+      // Get the most recent bar (today or latest available)
+      const latestBar = sortedBars[0];
+      
+      if (latestBar) {
+        const currentPrice = latestBar.c; // close price
+        
+        // Calculate price change:
+        // - If we have 2+ bars, compare today's close with yesterday's close
+        // - If only 1 bar, compare today's close with today's open for intraday movement
+        let previousPrice;
+        let change;
+        let changePercent;
+        
+        if (sortedBars.length >= 2) {
+          // Compare with previous day's close
+          previousPrice = sortedBars[1].c;
+          change = currentPrice - previousPrice;
+          changePercent = previousPrice !== 0 ? (change / previousPrice) * 100 : 0;
+        } else {
+          // Only one bar available - compare close with open for intraday
+          previousPrice = latestBar.o; // open price
+          change = currentPrice - previousPrice;
+          changePercent = previousPrice !== 0 ? (change / previousPrice) * 100 : 0;
+        }
+        
+        // Format volume
+        const formatVolume = (volume) => {
+          if (volume >= 1000000) {
+            return `${(volume / 1000000).toFixed(1)}M`;
+          } else if (volume >= 1000) {
+            return `${(volume / 1000).toFixed(0)}K`;
+          }
+          return volume.toString();
+        };
+        
+        stockDataMap[symbol] = {
+          symbol: symbol,
+          price: `$${currentPrice.toFixed(2)}`,
+          change: `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`,
+          isPositive: changePercent >= 0,
+          volume: formatVolume(latestBar.v || 0),
+          rawPrice: currentPrice,
+          rawChange: changePercent,
+        };
+      }
+    });
+    
+    return stockDataMap;
+  } catch (error) {
+    console.error('Error getting stock data:', error);
+    return {};
+  }
+};
+
 // Model API Client (Port 8000)
 // ============================================
 // Use proxy in development to avoid CORS issues
