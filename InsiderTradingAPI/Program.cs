@@ -408,7 +408,7 @@ app.MapPost("/simulate-trade/{bioGuideId}/{ticker}",
             var tradedAt = today.AddDays(-rnd.Next(31, 180));
             var disclosure = tradedAt.AddDays(rnd.Next(1, 30));
 
-            return new Trade(
+            return new PendingTrade(
                 tradeId: Guid.NewGuid(),
                 bioGuideId: bioGuideId,
                 fullName: fullName,
@@ -419,8 +419,8 @@ app.MapPost("/simulate-trade/{bioGuideId}/{ticker}",
                 tradeAmount: buckets[rnd.Next(buckets.Length)]
             );
         }).ToList();
-
-        db.Trades.AddRange(newTrades);
+        
+        db.TradesToAdd.AddRange(newTrades);
         await db.SaveChangesAsync();
 
         return Results.Created(
