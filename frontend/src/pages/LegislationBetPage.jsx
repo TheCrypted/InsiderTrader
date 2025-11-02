@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import Header from '../components/Header';
@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
 import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory, getMLPrediction } from '../utils/api';
 import { useStockLogo } from '../hooks/useImage';
+import { useSignalR } from '../hooks/useSignalR';
 
 // Component to display stock logo with ticker fallback
 const StockLogo = ({ ticker }) => {
@@ -57,6 +58,8 @@ const LegislationBetPage = () => {
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false); // Loading state for price history
   const [mlPrediction, setMlPrediction] = useState(null); // ML model prediction percentage for yes
   const [mlPredictionLoading, setMlPredictionLoading] = useState(false); // Loading state for ML prediction
+  const [tradeNotification, setTradeNotification] = useState(null); // Notification for trade/lobbying activity
+  const [showNotification, setShowNotification] = useState(false); // Whether to show notification
 
   // Helper function to build correct Congress.gov URL
   const buildCongressGovUrl = (billId) => {
@@ -584,7 +587,7 @@ const LegislationBetPage = () => {
 
   // Fetch stocks from /match API in background after legislation is loaded (useEffect to avoid React warning)
   useEffect(() => {
-    if (!legislation || !billId) return;
+    if (!billId) return;
     
     // Always fetch from /match API - no mock data
     console.log(`Fetching related stocks for ${billId} from /match API (timeout: 15s)...`);
@@ -598,36 +601,46 @@ const LegislationBetPage = () => {
         
         if (relatedStocks && relatedStocks.length > 0) {
           console.log(`✓ Fetched ${relatedStocks.length} related stocks for bill ${billId} from /match API`);
-          setLegislation(prev => ({
-            ...prev,
-            affectedStocks: relatedStocks, // Use API data only
-          }));
+          setLegislation(prev => {
+            // Only update if we still have legislation and the billId matches
+            if (!prev || prev.id !== billId) return prev;
+            return {
+              ...prev,
+              affectedStocks: relatedStocks, // Use API data only
+            };
+          });
         } else {
           console.log(`No related stocks found for bill ${billId} from /match API`);
-          // Set to empty array - will show N/A
-          setLegislation(prev => ({
-            ...prev,
-            affectedStocks: [],
-          }));
+          // Set to empty array - will show N/A, but only if billId still matches
+          setLegislation(prev => {
+            if (!prev || prev.id !== billId) return prev;
+            return {
+              ...prev,
+              affectedStocks: [],
+            };
+          });
         }
         setStocksLoading(false);
       })
       .catch(error => {
         if (cancelled) return;
         console.warn(`✗ Error fetching stocks from /match API for bill ${billId}:`, error.message || error);
-        // On error, set to empty array - will show N/A
-        setLegislation(prev => ({
-          ...prev,
-          affectedStocks: [],
-        }));
+        // On error, set to empty array - will show N/A, but only if billId still matches
+        setLegislation(prev => {
+          if (!prev || prev.id !== billId) return prev;
+          return {
+            ...prev,
+            affectedStocks: [],
+          };
+        });
         setStocksLoading(false);
       });
     
     return () => {
       cancelled = true;
-      setStocksLoading(false);
+      // Don't set loading to false on cleanup to avoid flicker
     };
-  }, [legislation?.id, billId]); // Re-fetch if billId changes
+  }, [billId]); // Only re-fetch if billId changes
 
   // Fetch sponsor congressman data if we have bioguide_id
   const [sponsorCongressman, setSponsorCongressman] = useState(null);
@@ -765,6 +778,35 @@ const LegislationBetPage = () => {
     fetchMLPrediction();
   }, [billId]);
 
+  // Set up SignalR connection to listen for trade/lobbying activity
+  const normalizeBillId = (id) => {
+    if (!id) return null;
+    return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+  };
+
+  const handleTradeOrLobbyingActivity = useCallback((notification) => {
+    if (!notification || !billId) return;
+
+    // Normalize bill IDs for comparison
+    const currentBillIdNormalized = normalizeBillId(billId);
+    const notificationBillIdNormalized = normalizeBillId(notification.billId);
+
+    // Check if notification is for this bill
+    if (notificationBillIdNormalized === currentBillIdNormalized) {
+      console.log('Trade/lobbying activity detected for current bill:', notification);
+      setTradeNotification(notification);
+      setShowNotification(true);
+
+      // Auto-hide notification after 10 seconds
+      setTimeout(() => {
+        setShowNotification(false);
+      }, 10000);
+    }
+  }, [billId]);
+
+  // Connect to SignalR hub
+  const { isConnected, connectionError } = useSignalR(null, handleTradeOrLobbyingActivity);
+
   // Filter price history based on time range
   const getFilteredHistory = () => {
     if (!legislation || !legislation.priceHistory) return [];
@@ -849,6 +891,42 @@ const LegislationBetPage = () => {
   return (
     <div className="min-h-screen bg-white">
       <Header />
+      
+      {/* Trade/Lobbying Activity Notification */}
+      {showNotification && tradeNotification && (
+        <div className="fixed top-20 right-6 z-50 animate-slide-in-right max-w-md">
+          <div className="bg-yellow-100 border-2 border-black shadow-lg p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-5 h-5 text-yellow-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <h4 className="font-bold text-yellow-900">New Trade/Lobbying Activity</h4>
+                </div>
+                <p className="text-sm text-yellow-800 mb-1">
+                  Activity detected for bill <span className="font-semibold">{tradeNotification.billId}</span>
+                </p>
+                {tradeNotification.updatedAt && (
+                  <p className="text-xs text-yellow-700">
+                    Updated: {new Date(tradeNotification.updatedAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowNotification(false)}
+                className="ml-4 text-yellow-800 hover:text-yellow-900 transition-colors"
+                aria-label="Close notification"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="border-b border-black">
         <div className="container mx-auto px-6 py-4">
           {/* Back Link */}

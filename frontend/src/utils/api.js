@@ -136,6 +136,23 @@ export const getTrades = async (congressmanId) => {
   }
 };
 
+// Simulate a trade for a congressman
+export const simulateTrade = async (bioGuideId, ticker, count) => {
+  try {
+    const response = await apiClient.post(
+      `/simulate-trade/${bioGuideId}/${ticker}`,
+      {},
+      {
+        params: { count }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error simulating trade:', error);
+    throw error;
+  }
+};
+
 // Get all representatives basic info (fast, no trade data)
 export const getAllRepresentativesBasic = async () => {
   try {
