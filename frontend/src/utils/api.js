@@ -816,23 +816,27 @@ const parseBillId = (billId) => {
   return null;
 };
 
-// Fetch Polymarket odds for bills
+// Fetch Polymarket bills with betting info from /bills endpoint
+// Returns full bill data including the 'info' field from the API
 export const getPolymarketBills = async () => {
   try {
     const response = await modelApiClient.get('/bills');
     if (response.data && Array.isArray(response.data)) {
-      // Map /bills response to expected format
+      // Return full response including 'info' field, plus mapped odds format
       return response.data.map(bill => ({
         bill_id: bill.bill_id || bill.bill, // Use bill_id if available, fallback to bill field
-        yes_percentage: bill.yes_percent || 50, // yes_percent from API
+        bill: bill.bill, // Keep original bill field
+        yes_percent: bill.yes_percent, // Keep original format
+        yes_percentage: bill.yes_percent || 50, // Mapped format
         no_percentage: bill.yes_percent !== undefined ? (100 - bill.yes_percent) : 50, // Calculate no_percentage
         volume: null, // Not provided by /bills endpoint
-        source: 'polymarket'
+        source: 'polymarket',
+        info: bill.info || null, // Include full info field (title, sponsors, cosponsors_count, etc.)
       }));
     }
     return [];
   } catch (error) {
-    console.error('Error fetching bills:', error);
+    console.error('Error fetching Polymarket bills:', error);
     return [];
   }
 };
@@ -1026,6 +1030,35 @@ const determineBillStatus = (actionText) => {
   }
   
   return 'Pending';
+};
+
+// Fetch graph data from /graph endpoint
+// No parameters - let API return all available data with its defaults
+export const getGraphData = async () => {
+  try {
+    // Call /graph with no params - API will use its defaults and return all available data
+    console.log(`Fetching graph data from /graph (no params - getting all available data)`);
+    const response = await modelApiClient.get('/graph', {
+      timeout: 60000, // 60 second timeout for large graph data
+    });
+
+    if (response.data && response.data.nodes && response.data.edges) {
+      console.log(`✓ Fetched graph data from API: ${response.data.nodes.length} nodes, ${response.data.edges.length} edges`);
+      return {
+        nodes: response.data.nodes,
+        edges: response.data.edges,
+      };
+    }
+    console.warn('API response missing nodes or edges:', response.data);
+    return { nodes: [], edges: [] };
+  } catch (error) {
+    console.error('Error fetching graph data:', error.message || error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    return { nodes: [], edges: [] };
+  }
 };
 
 export default apiClient;

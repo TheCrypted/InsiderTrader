@@ -44,36 +44,50 @@ const BrowsePage = () => {
     fetchCongressmenBasic();
   }, []);
 
-  // Fetch recent bills from API and Polymarket odds
+  // Fetch bills: First /bills (Polymarket bills with betting info), then /recent_bills (additional bills)
   useEffect(() => {
-    const fetchRecentBills = async () => {
+    const fetchBills = async () => {
       try {
         setLoadingLegislation(true);
-        console.log('Fetching recent bills for BrowsePage...');
+        console.log('Fetching bills for BrowsePage...');
         
-        // Fetch bills and Polymarket odds in parallel
-        const [bills, polymarketData] = await Promise.all([
-          getRecentBills(),
-          getPolymarketBills()
-        ]);
+        // Step 1: Fetch Polymarket bills with betting info from /bills endpoint
+        console.log('Step 1: Fetching Polymarket bills from /bills endpoint...');
+        const polymarketBillsResponse = await getPolymarketBills();
         
-        console.log('Received bills in BrowsePage:', bills);
-        console.log('Received Polymarket odds:', polymarketData);
+        // Extract full bill data from Polymarket bills (they have 'info' field)
+        const polymarketBills = polymarketBillsResponse.map(bill => ({
+          bill_id: bill.bill_id || bill.bill,
+          title: bill.info?.title || bill.bill_id || bill.bill,
+          latest_action: bill.info?.latest_action || {},
+          introduced_date: bill.info?.introduced_date,
+          policy_area: bill.info?.policy_area,
+          sponsors: bill.info?.sponsors || [],
+          cosponsors_count: bill.info?.cosponsors_count || 0,
+          url: bill.info?.url,
+          hasPolymarketOdds: true, // Mark that these have Polymarket odds
+        }));
+        
+        console.log(`Fetched ${polymarketBills.length} Polymarket bills`);
         
         // Create a map of bill_id -> odds for quick lookup
         // Handle various bill ID formats for matching
         const oddsMap = {};
-        polymarketData.forEach(bill => {
+        polymarketBillsResponse.forEach(bill => {
           const billId = bill.bill_id || bill.bill; // Use bill_id if available, fallback to bill field
           if (!billId) return;
           
           // Store with original format
-          oddsMap[billId] = bill;
+          oddsMap[billId] = {
+            ...bill,
+            yes_percentage: bill.yes_percent || 50,
+            no_percentage: bill.yes_percent !== undefined ? (100 - bill.yes_percent) : 50,
+          };
           
           // Normalize and store multiple formats for matching
           // Remove all dots and spaces, uppercase
           const normalizedNoDots = billId.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
-          oddsMap[normalizedNoDots] = bill;
+          oddsMap[normalizedNoDots] = oddsMap[billId];
           
           // Store with standardized dot format (HR.1234, S.567)
           const standardized = billId
@@ -84,29 +98,69 @@ const BrowsePage = () => {
             .replace(/\s+/g, '')
             .toUpperCase();
           if (standardized !== billId) {
-            oddsMap[standardized] = bill;
+            oddsMap[standardized] = oddsMap[billId];
           }
           
           // Also store without leading zeros in number part (HR.05345 -> HR.5345)
           const noLeadingZeros = billId.replace(/(\.|^)(0+)(\d+)/, '$1$3');
           if (noLeadingZeros !== billId) {
-            oddsMap[noLeadingZeros] = bill;
+            oddsMap[noLeadingZeros] = oddsMap[billId];
             const normalizedNoLeadingZeros = noLeadingZeros.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
-            oddsMap[normalizedNoLeadingZeros] = bill;
+            oddsMap[normalizedNoLeadingZeros] = oddsMap[billId];
           }
         });
-        console.log('Polymarket odds map created:', Object.keys(oddsMap));
+        console.log('Polymarket odds map created:', Object.keys(oddsMap).length, 'entries');
         setPolymarketOdds(oddsMap);
         
-        if (bills && bills.length > 0) {
-          setRecentBills(bills);
-          console.log(`Set ${bills.length} bills from API`);
+        // Step 2: Fetch additional bills from /recent_bills endpoint
+        console.log('Step 2: Fetching additional bills from /recent_bills endpoint...');
+        const recentBillsResponse = await getRecentBills();
+        
+        // Normalize bill IDs for comparison
+        const normalizeBillId = (id) => {
+          if (!id) return null;
+          return id.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+        };
+        
+        // Create a set of Polymarket bill IDs (normalized) to avoid duplicates
+        const polymarketBillIds = new Set(
+          polymarketBills.map(b => normalizeBillId(b.bill_id))
+        );
+        
+        // Filter out bills that are already in Polymarket bills
+        const additionalBills = recentBillsResponse
+          .filter(bill => {
+            const billId = normalizeBillId(bill.bill_id || bill.id);
+            return billId && !polymarketBillIds.has(billId);
+          })
+          .map(bill => ({
+            bill_id: bill.bill_id || bill.id,
+            title: bill.title,
+            latest_action: bill.latest_action || {},
+            introduced_date: bill.introduced_date,
+            policy_area: bill.policy_area,
+            sponsors: bill.sponsors || [],
+            cosponsors_count: bill.cosponsors_count || 0,
+            url: bill.url,
+            hasPolymarketOdds: false, // Mark that these don't have Polymarket odds
+          }));
+        
+        console.log(`Fetched ${additionalBills.length} additional bills from /recent_bills (excluding duplicates)`);
+        
+        // Combine: Polymarket bills first (with betting info), then additional bills
+        const allBills = [...polymarketBills, ...additionalBills];
+        
+        console.log(`Total bills: ${allBills.length} (${polymarketBills.length} with Polymarket odds, ${additionalBills.length} additional)`);
+        
+        if (allBills.length > 0) {
+          setRecentBills(allBills);
+          console.log(`Set ${allBills.length} bills (Polymarket first, then recent bills)`);
         } else {
           console.log('No bills received, will use graphBills fallback');
           setRecentBills([]);
         }
       } catch (error) {
-        console.error('Error fetching recent bills:', error);
+        console.error('Error fetching bills:', error);
         // Fallback to empty array, will use graphBills below
         setRecentBills([]);
         setPolymarketOdds({});
@@ -116,7 +170,7 @@ const BrowsePage = () => {
     };
 
     if (activeTab === 'legislation') {
-      fetchRecentBills();
+      fetchBills();
     } else {
       // Reset when switching away from legislation tab
       setRecentBills([]);

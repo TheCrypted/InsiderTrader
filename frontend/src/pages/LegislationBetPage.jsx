@@ -6,6 +6,39 @@ import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
 import { getPolymarketOddsForBill, getBillRelevantStocks, getBillInfo, getCongressman } from '../utils/api';
+import { useStockLogo } from '../hooks/useImage';
+
+// Component to display stock logo with ticker fallback
+const StockLogo = ({ ticker }) => {
+  const { logoUrl, loading: logoLoading } = useStockLogo(ticker);
+  
+  return (
+    <div className="w-10 h-10 rounded flex items-center justify-center font-bold text-xs text-gray-900 bg-white border border-gray-200 overflow-hidden flex-shrink-0 relative">
+      {logoUrl && !logoLoading ? (
+        <img 
+          src={logoUrl} 
+          alt={ticker} 
+          className="w-full h-full object-contain p-1" 
+          loading="lazy"
+          onError={(e) => {
+            // Hide image on error and show ticker symbol
+            e.target.style.display = 'none';
+            const tickerSpan = e.target.parentElement.querySelector('.ticker-fallback');
+            if (tickerSpan) {
+              tickerSpan.style.display = 'flex';
+            }
+          }} 
+        />
+      ) : null}
+      <span 
+        className={`ticker-fallback absolute inset-0 flex items-center justify-center ${logoUrl && !logoLoading ? 'hidden' : 'flex'}`}
+        style={{ fontSize: '9px', fontWeight: '600' }}
+      >
+        {ticker && ticker !== '-' ? ticker : 'N/A'}
+      </span>
+    </div>
+  );
+};
 
 const LegislationBetPage = () => {
   const { billId } = useParams();
@@ -1104,9 +1137,7 @@ const LegislationBetPage = () => {
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="w-10 h-10 bg-gray-100 border border-black flex items-center justify-center font-bold text-gray-700 flex-shrink-0">
-                            {stock.symbol}
-                          </div>
+                          <StockLogo ticker={stock.symbol} />
                           <div className="min-w-0 flex-1">
                             <div className="font-semibold text-gray-900 truncate">{stock.name}</div>
                             <div className="text-xs text-gray-500 truncate">{stock.sector}</div>
