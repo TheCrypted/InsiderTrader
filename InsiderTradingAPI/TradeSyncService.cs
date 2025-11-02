@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -12,16 +13,19 @@ public sealed class TradeSyncService : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TradeSyncService> _logger;
     private readonly TimeSpan _interval;
+    private readonly IHubContext<TradeHub> _hub;
 
     public TradeSyncService(
         IServiceProvider services,
         IHttpClientFactory httpClientFactory,
         IOptions<TradeSyncOptions> opts,
-        ILogger<TradeSyncService> logger)
+        ILogger<TradeSyncService> logger,
+        IHubContext<TradeHub> hub)
     {
         _services = services;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _hub = hub;
         _interval = TimeSpan.FromMilliseconds(Math.Max(250, opts.Value.IntervalMS));
     }
 
@@ -46,7 +50,7 @@ public sealed class TradeSyncService : BackgroundService
     private async Task SyncOnce(CancellationToken ct)
     {
         using var scope = _services.CreateScope();
-        var db   = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var http = _httpClientFactory.CreateClient("quiver");
 
         var json = new JsonSerializerOptions
@@ -108,25 +112,45 @@ public sealed class TradeSyncService : BackgroundService
         static string K(Trade t) => Key(t.bioGuideId, t.ticker, t.tradedAt, t.disclosureDate, t.tradeType);
 
         var toInsert = mapped.Where(t => !existingKeys.Contains(K(t))).ToList();
+        
+        var tradesToAdd = await db.TradesToAdd.ToListAsync(ct);
+        toInsert.AddRange(tradesToAdd.Select(t=> new Trade(
+            t.tradeId, t.bioGuideId, t.fullName, t.ticker, t.tradedAt, t.disclosureDate,
+            t.tradeType, t.tradeAmount)));
+        db.TradesToAdd.RemoveRange(tradesToAdd);
+        
+        await executeSync(toInsert, db);
+    }
 
+    public async Task executeSync(List<Trade> toInsert, AppDbContext db) {
         if (toInsert.Count == 0)
         {
             _logger.LogInformation("Trade sync: nothing new to insert.");
             return;
         }
+        
+        db.Trades.AddRange(toInsert);
+        await db.SaveChangesAsync();
 
-        const int batchSize = 500;
-        int inserted = 0;
-        foreach (var chunk in toInsert.Chunk(batchSize))
-        {
-            db.Trades.AddRange(chunk);
-            inserted += await db.SaveChangesAsync(ct);
+        foreach (var trade in toInsert) {
+            List<string> bills = GetRelevantBills(trade.bioGuideId, trade.ticker);
+            foreach (var billId in bills) {
+                double modelResponse = AskHardik(billId);
+                var notification = new TradeOrLobbyingNotification(billId, 
+                    modelResponse, DateTime.Now);
+                await _hub.Clients.All.SendAsync("TradeOrLobbyingActivity", notification);
+                _logger.LogInformation("Broadcast new data to frontend about bill {billId}.", billId);
+            }
         }
-
-        _logger.LogInformation("Trade sync: inserted {Inserted} new trades (payload {Payload}).",
-            inserted, records.Count);
     }
 
+    public static double AskHardik(string billId) { // todo
+        return 55.0;
+    }
+
+    public List<string> GetRelevantBills(string politicianId, string companyTicker) { // todo
+        return new List<string>(); // add bills sponsored by this person and bills relevant to company
+    }
     
     private static Trade ToTrade(CongressionalTradeLiveResponse r)
     {
@@ -208,5 +232,5 @@ public sealed class TradeSyncService : BackgroundService
 
 public sealed class TradeSyncOptions
 {
-    public int IntervalMS { get; set; } = 5000;
+    public int IntervalMS { get; set; } = 3000;
 }
