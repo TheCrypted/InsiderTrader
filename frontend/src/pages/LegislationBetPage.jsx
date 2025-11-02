@@ -5,7 +5,7 @@ import Header from '../components/Header';
 import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { getLegislationDetails } from '../utils/legislationData';
-import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory } from '../utils/api';
+import { getPolymarketOddsForBill, getPolymarketBills, getBillRelevantStocks, getBillInfo, getCongressman, getBillPriceHistory, getMLPrediction } from '../utils/api';
 import { useStockLogo } from '../hooks/useImage';
 
 // Component to display stock logo with ticker fallback
@@ -55,6 +55,8 @@ const LegislationBetPage = () => {
   const [stocksLoading, setStocksLoading] = useState(false); // Loading state for affected stocks from /match API
   const [hasPolymarketData, setHasPolymarketData] = useState(false); // Whether bill exists in Polymarket
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false); // Loading state for price history
+  const [mlPrediction, setMlPrediction] = useState(null); // ML model prediction percentage for yes
+  const [mlPredictionLoading, setMlPredictionLoading] = useState(false); // Loading state for ML prediction
 
   // Helper function to build correct Congress.gov URL
   const buildCongressGovUrl = (billId) => {
@@ -736,6 +738,33 @@ const LegislationBetPage = () => {
     }
   }, [legislation?.id, hasPolymarketData, timeRange]);
 
+  // Fetch ML model prediction when billId changes
+  useEffect(() => {
+    const fetchMLPrediction = async () => {
+      if (!billId) {
+        return;
+      }
+      
+      setMlPredictionLoading(true);
+      try {
+        const prediction = await getMLPrediction(billId);
+        if (prediction && prediction.probability !== null && prediction.probability !== undefined) {
+          setMlPrediction(prediction);
+          console.log(`✓ Fetched ML prediction for ${billId}: ${prediction.probability}`);
+        } else {
+          setMlPrediction(null);
+        }
+      } catch (error) {
+        console.error(`Error fetching ML prediction for ${billId}:`, error);
+        setMlPrediction(null);
+      } finally {
+        setMlPredictionLoading(false);
+      }
+    };
+    
+    fetchMLPrediction();
+  }, [billId]);
+
   // Filter price history based on time range
   const getFilteredHistory = () => {
     if (!legislation || !legislation.priceHistory) return [];
@@ -1311,25 +1340,49 @@ const LegislationBetPage = () => {
             </div>
           </div>
 
-          {/* Right Column - Market Stats */}
+          {/* Right Column - ML Prediction */}
           <div className="space-y-0 border-l border-black p-0">
-            {/* Market Statistics */}
+            {/* ML Model Prediction */}
             <div className="bg-white border-b border-black p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-black pb-3">Market Statistics</h3>
-              <div className="space-y-0">
-                <div className="p-4 border-b border-black">
-                  <div className="text-xs text-gray-500 mb-1">24h Volume</div>
-                  <div className="text-xl font-semibold text-gray-900">{formatCurrency(legislation.volume24h)}</div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-black pb-3">ML Model Prediction</h3>
+              {mlPredictionLoading ? (
+                <div className="py-8 flex items-center justify-center">
+                  <LoadingSpinner size="md" />
                 </div>
-                <div className="p-4 border-b border-black">
-                  <div className="text-xs text-gray-500 mb-1">Liquidity</div>
-                  <div className="text-xl font-semibold text-gray-900">{formatCurrency(legislation.liquidity)}</div>
+              ) : mlPrediction?.probability !== null && mlPrediction?.probability !== undefined ? (
+                <div className="space-y-0">
+                  <div className="p-4 border-b border-black">
+                    <div className="text-xs text-gray-500 mb-2">True Probability</div>
+                    <div className="text-4xl font-bold text-gray-900 mb-3">{formatPercent(mlPrediction.probability)}</div>
+                    <div className="text-sm text-gray-600 mb-4">
+                      ML model prediction that this bill will pass
+                    </div>
+                    <div className="h-3 bg-gray-200 border border-black overflow-hidden">
+                      <div 
+                        className="h-full bg-gresearch-yellow transition-all"
+                        style={{ width: `${mlPrediction.probability * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  {mlPrediction.confidence && (
+                    <div className="p-4 border-b border-black">
+                      <div className="text-xs text-gray-500 mb-1">Confidence</div>
+                      <div className="text-xl font-semibold text-gray-900">{formatPercent(mlPrediction.confidence)}</div>
+                    </div>
+                  )}
+                  {mlPrediction.modelVersion && (
+                    <div className="p-4">
+                      <div className="text-xs text-gray-500 mb-1">Model Version</div>
+                      <div className="text-sm font-medium text-gray-900">{mlPrediction.modelVersion}</div>
+                    </div>
+                  )}
                 </div>
-                <div className="p-4">
-                  <div className="text-xs text-gray-500 mb-1">Market Cap</div>
-                  <div className="text-xl font-semibold text-gray-900">{formatCurrency(legislation.marketCap)}</div>
+              ) : (
+                <div className="py-8 text-center">
+                  <div className="text-lg font-semibold text-gray-400 mb-2">N/A</div>
+                  <p className="text-sm text-gray-500">ML prediction not available</p>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Affected Stocks Section */}

@@ -1120,6 +1120,45 @@ export const getGraphData = async () => {
   }
 };
 
+// Fetch ML model prediction for a bill
+export const getMLPrediction = async (billId) => {
+  try {
+    const parsed = parseBillId(billId);
+    if (!parsed) {
+      console.warn(`Could not parse bill_id for ML prediction: ${billId}`);
+      return null;
+    }
+
+    console.log(`Fetching ML prediction for ${billId} -> bill_type: ${parsed.bill_type}, bill_number: ${parsed.bill_number}`);
+    
+    const response = await modelApiClient.get('/predict', {
+      params: {
+        bill_type: parsed.bill_type,
+        bill_number: parsed.bill_number,
+      },
+      timeout: 15000, // 15 second timeout for ML prediction
+    });
+
+    if (response.data && response.data.probability !== undefined) {
+      return {
+        probability: response.data.probability, // Should be between 0 and 1
+        confidence: response.data.confidence || null,
+        modelVersion: response.data.model_version || null,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error fetching ML prediction for ${billId}:`, error.message || error);
+    // Return a mock prediction if API is not available
+    // In production, this would fall back gracefully
+    return {
+      probability: null, // No prediction available
+      confidence: null,
+      modelVersion: null,
+    };
+  }
+};
+
 // NY Times Top Stories API Client
 // ============================================
 const NYTIMES_API_KEY = import.meta.env.VITE_NYTIMES_API_KEY;
