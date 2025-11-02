@@ -4,7 +4,6 @@ import ForceGraph2D from 'react-force-graph-2d';
 import Header from '../components/Header';
 import { graphNodes as mockGraphNodes, graphLinks as mockGraphLinks, nodeColors, sectorColors } from '../utils/graphData';
 import { getRecentBills, getAllRepresentativesBasic, loadTradesForBatch, getGraphData } from '../utils/api';
-import Container from '../components/shared/Container';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 
 const GraphPage = () => {
@@ -140,12 +139,13 @@ const GraphPage = () => {
           nodeEdgeCounts[edge.target] = (nodeEdgeCounts[edge.target] || 0) + 1;
         });
         
-        // Update node sizes based on edge connections
+        // Update node sizes based on edge connections - larger base sizes
         transformedNodes.forEach(node => {
           const edgeCount = nodeEdgeCounts[node.id] || 0;
           if (node.type === 'bill') {
-            node.size = Math.min(40, Math.max(15, 15 + edgeCount * 2));
+            node.size = Math.min(50, Math.max(20, 20 + edgeCount * 3));
           } else {
+            // Congressmen nodes - smaller size
             node.size = Math.min(30, Math.max(10, 10 + edgeCount * 1.5));
           }
         });
@@ -254,17 +254,17 @@ const GraphPage = () => {
   // Calculate group positions (circular layout around center)
   const groupPositions = useMemo(() => {
     const groups = {
-      dem: { angle: Math.PI / 4, radius: 200 },
-      rep: { angle: (3 * Math.PI) / 4, radius: 200 },
-      ind: { angle: Math.PI / 2, radius: 180 }, // Independent (smaller group)
-      Technology: { angle: -Math.PI / 4, radius: 250 },
-      Financials: { angle: -Math.PI / 2, radius: 250 },
-      Energy: { angle: Math.PI / 2, radius: 250 },
-      Healthcare: { angle: Math.PI, radius: 250 },
-      Business: { angle: (5 * Math.PI) / 4, radius: 250 },
-      Defense: { angle: (7 * Math.PI) / 4, radius: 250 },
-      General: { angle: 0, radius: 250 },
-      other: { angle: 0, radius: 200 }
+      dem: { angle: Math.PI / 4, radius: 500 },
+      rep: { angle: (3 * Math.PI) / 4, radius: 500 },
+      ind: { angle: Math.PI / 2, radius: 450 }, // Independent (smaller group)
+      Technology: { angle: -Math.PI / 4, radius: 600 },
+      Financials: { angle: -Math.PI / 2, radius: 600 },
+      Energy: { angle: Math.PI / 2, radius: 600 },
+      Healthcare: { angle: Math.PI, radius: 600 },
+      Business: { angle: (5 * Math.PI) / 4, radius: 600 },
+      Defense: { angle: (7 * Math.PI) / 4, radius: 600 },
+      General: { angle: 0, radius: 600 },
+      other: { angle: 0, radius: 500 }
     };
     return groups;
   }, []);
@@ -320,57 +320,56 @@ const GraphPage = () => {
     console.log(`Final: ${combinedNodes.length} nodes (${apiNodes.length > 0 ? 'API' : 'MOCK'}) and ${combinedLinks.length} links (${apiLinks.length > 0 ? 'API' : 'MOCK'})`);
     console.log(`=== END GRAPH DATA PREPARATION ===\n`);
     
-    // Normalize node sizes (scale between 8 and 40)
+    // Normalize node sizes - different ranges for bills vs congressmen
     const sizes = combinedNodes.map(n => n.size || 10);
     const minSize = Math.min(...sizes);
     const maxSize = Math.max(...sizes);
-    const normalizeSize = (size) => {
-      if (maxSize === minSize) return 20;
-      return 8 + ((size - minSize) / (maxSize - minSize)) * 32;
+    const normalizeSize = (size, nodeType) => {
+      if (maxSize === minSize) {
+        return nodeType === 'bill' ? 45 : 18;
+      }
+      if (nodeType === 'bill') {
+        // Bills: scale between 30 and 60
+        return 30 + ((size - minSize) / (maxSize - minSize)) * 30;
+      } else {
+        // Congressmen: scale between 12 and 25 (smaller)
+        return 12 + ((size - minSize) / (maxSize - minSize)) * 13;
+      }
     };
 
-    // Count nodes per group for positioning
-    const groupCounts = {};
-    combinedNodes.forEach(node => {
-      const group = getNodeGroup(node);
-      groupCounts[group] = (groupCounts[group] || 0) + 1;
-    });
-
-    let groupIndices = {};
+    // Remove clustering - spread nodes randomly across entire canvas
     const nodes = combinedNodes.map(node => {
-      const group = getNodeGroup(node);
-      const groupIdx = groupIndices[group] || 0;
-      groupIndices[group] = groupIdx + 1;
+      // Use dynamic center based on viewport size - larger area
+      const centerX = typeof window !== 'undefined' ? window.innerWidth / 2 : 1200;
+      const centerY = typeof window !== 'undefined' ? window.innerHeight / 2 : 800;
       
-      // Calculate position in group (circular arrangement)
-      const groupPos = groupPositions[group] || groupPositions.other;
-      const nodesInGroup = groupCounts[group] || 1;
-      const angleOffset = (2 * Math.PI * groupIdx) / nodesInGroup;
-      const angle = groupPos.angle + angleOffset;
+      // For bills: spread them more widely, avoid center clustering
+      // For congressmen: also spread them out but can be anywhere
+      const maxRadius = typeof window !== 'undefined' 
+        ? Math.min(window.innerWidth, window.innerHeight) * 0.4 
+        : 1000;
       
-      // Add some random scatter within group
-      const scatterRadius = 30 + Math.random() * 20;
-      const scatterAngle = Math.random() * 2 * Math.PI;
+      // Random angle and radius - full circle spread
+      const randomAngle = Math.random() * 2 * Math.PI;
+      const randomRadius = Math.random() * maxRadius;
       
-      const centerX = 400; // Center of canvas (assuming ~800px width)
-      const centerY = 300; // Center of canvas (assuming ~600px height)
+      // Add extra random scatter for bills to push them even further apart
+      const extraScatter = node.type === 'bill' ? (200 + Math.random() * 300) : (100 + Math.random() * 200);
       
-      const x = centerX + Math.cos(angle) * groupPos.radius + Math.cos(scatterAngle) * scatterRadius;
-      const y = centerY + Math.sin(angle) * groupPos.radius + Math.sin(scatterAngle) * scatterRadius;
+      const x = centerX + Math.cos(randomAngle) * (randomRadius + extraScatter * (Math.random() - 0.5));
+      const y = centerY + Math.sin(randomAngle) * (randomRadius + extraScatter * (Math.random() - 0.5));
 
       return {
         ...node,
         // Initial positions based on grouping
         x,
         y,
-        // Normalized size
-        normalizedSize: normalizeSize(node.size || 10),
+        // Normalized size - smaller for congressmen
+        normalizedSize: normalizeSize(node.size || 10, node.type),
         // Color based on type
         color: node.type === 'congressman' 
           ? (nodeColors.congressman[node.party] || (node.party === 'Republican' || node.party === 'R' ? nodeColors.congressman.Republican : nodeColors.congressman.Democratic))
-          : (sectorColors[node.sector] || nodeColors.bill),
-        // Group for clustering
-        group: group,
+          : nodeColors.bill, // All bills are yellow
         // Add visual properties
         opacity: 1,
         strokeWidth: 2
@@ -467,13 +466,13 @@ const GraphPage = () => {
       const congressmanId = node.bioguideId || node.id.replace('person:', '');
       
       return (
-        <div className="p-4 bg-white rounded-lg shadow-lg border-2 border-gray-200 max-w-sm">
+        <div className="p-4 bg-white max-w-sm overflow-x-hidden">
           <div className="flex items-start gap-3 mb-3">
             {node.image && (
               <img 
                 src={node.image} 
                 alt={node.name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                className="w-16 h-16 object-cover border border-black"
                 onError={(e) => {
                   e.target.style.display = 'none';
                 }}
@@ -485,7 +484,7 @@ const GraphPage = () => {
               <p className="text-xs text-gray-500">{node.state}</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 text-sm border-t border-gray-200 pt-3">
+          <div className="grid grid-cols-2 gap-3 text-sm border-t border-black pt-3">
             <div>
               <span className="text-gray-500">Net Worth:</span>
               <div className="font-semibold text-gray-900">{node.netWorth > 0 ? formatCurrency(node.netWorth) : 'N/A'}</div>
@@ -501,7 +500,7 @@ const GraphPage = () => {
             <div>
               <Link
                 to={`/congressman/${congressmanId}/trading`}
-                className="text-xs c-btn c-btn--yellow px-3 py-1 mt-2 inline-block"
+                className="text-xs c-btn c-btn--yellow px-3 py-1 mt-2 inline-block border border-black"
               >
                 View Profile →
               </Link>
@@ -514,10 +513,10 @@ const GraphPage = () => {
       const billId = node.billId || node.id.replace('bill:', '').replace(/^HR\./, 'H.R.').replace(/^S\./, 'S.');
       
       return (
-        <div className="p-4 bg-white rounded-lg shadow-lg border-2 border-gray-200 max-w-sm">
+        <div className="p-4 bg-white max-w-sm overflow-x-hidden">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">{billId}</h3>
           <p className="text-sm text-gray-700 mb-3">{node.title}</p>
-          <div className="space-y-2 text-sm border-t border-gray-200 pt-3">
+          <div className="space-y-2 text-sm border-t border-black pt-3">
             <div className="flex justify-between">
               <span className="text-gray-500">Status:</span>
               <span className="font-medium text-gray-900">{node.status || 'Pending'}</span>
@@ -545,7 +544,7 @@ const GraphPage = () => {
             <div className="pt-2">
               <Link
                 to={`/legislation/${billId}/bet`}
-                className="text-xs c-btn c-btn--yellow px-3 py-1 inline-block"
+                className="text-xs c-btn c-btn--yellow px-3 py-1 inline-block border border-black"
               >
                 Predict Outcome →
               </Link>
@@ -559,10 +558,49 @@ const GraphPage = () => {
   // Show loading spinner while fetching data
   if (loading) {
     return (
-      <div className="min-h-screen bg-gresearch-grey-200">
+      <div className="min-h-screen bg-white flex flex-col overflow-x-hidden">
         <Header />
-        <Container>
-          <div className="flex flex-col items-center justify-center min-h-[80vh] gap-6">
+        <div className="flex-1 flex flex-col overflow-x-hidden">
+          {/* Header Section */}
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-4">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <Link
+                  to="/"
+                  className="inline-flex items-center gap-2 text-gray-900 hover:text-black transition-colors mb-2"
+                >
+                  <span className="text-lg">&lt;</span>
+                  <span>Back to Dashboard</span>
+                </Link>
+                <h1 className="text-3xl font-bold text-gray-900">Knowledge Graph</h1>
+                <p className="text-sm text-gray-600 mt-1">
+                  View and filter all congressmen and legislation
+                </p>
+              </div>
+              
+              {/* Filters - Segmented Control */}
+              <div className="flex border border-black">
+                {['all', 'congressman', 'bill'].map((f, index) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    className={`px-4 py-2 text-sm font-medium transition-all capitalize ${
+                      index > 0 ? 'border-l border-black' : ''
+                    } ${
+                      filter === f
+                        ? 'bg-black text-white'
+                        : 'bg-white text-black hover:bg-gray-50'
+                    }`}
+                  >
+                    {f === 'all' ? 'All' : f === 'congressman' ? 'Congressmen' : f === 'bill' ? 'Legislation' : f}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Loading Content */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-6">
             <LoadingSpinner size="lg" />
             <div className="text-center">
               <p className="text-lg font-semibold text-gray-900 mb-2">Constructing Knowledge Graph</p>
@@ -571,59 +609,59 @@ const GraphPage = () => {
               </p>
             </div>
           </div>
-        </Container>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gresearch-grey-200">
+    <div className="min-h-screen bg-white flex flex-col overflow-x-hidden">
       <Header />
-      <div className="py-8">
-      <Container>
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
+      <div className="flex-1 flex flex-col overflow-x-hidden">
+        {/* Header Section */}
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors mb-2"
+                className="inline-flex items-center gap-2 text-gray-900 hover:text-black transition-colors mb-2"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                Back to Dashboard
+                <span className="text-lg">&lt;</span>
+                <span>Back to Dashboard</span>
               </Link>
-              <h1 className="text-3xl font-light text-gray-900">Knowledge Graph</h1>
+              <h1 className="text-3xl font-bold text-gray-900">Knowledge Graph</h1>
               <p className="text-sm text-gray-600 mt-1">
-                Interactive visualization of bills, congressmen, and their relationships
+                View and filter all congressmen and legislation
               </p>
             </div>
             
-            {/* Filters */}
-            <div className="flex gap-2">
-              {['all', 'congressman', 'bill'].map((f) => (
+            {/* Filters - Segmented Control */}
+            <div className="flex border border-black">
+              {['all', 'congressman', 'bill'].map((f, index) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all capitalize ${
+                  className={`px-4 py-2 text-sm font-medium transition-all capitalize ${
+                    index > 0 ? 'border-l border-black' : ''
+                  } ${
                     filter === f
-                      ? 'c-btn c-btn--yellow'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      ? 'bg-black text-white'
+                      : 'bg-white text-black hover:bg-gray-50'
                   }`}
                 >
-                  {f}
+                  {f === 'all' ? 'All' : f === 'congressman' ? 'Congressmen' : f === 'bill' ? 'Legislation' : f}
                 </button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Graph Container */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden relative">
-          <div className="w-full h-[600px] relative">
+        {/* Graph Container - Takes remaining space */}
+        <div className="flex-1 bg-white border-t border-black relative min-h-0 overflow-x-hidden">
+          <div className="absolute inset-0 bg-white overflow-x-hidden">
             <ForceGraph2D
               graphData={filteredData}
+              backgroundColor="#ffffff"
               nodeLabel={getNodeLabel}
               nodeRelSize={node => node.normalizedSize || 15}
               nodeVal={node => node.normalizedSize || 15}
@@ -637,26 +675,31 @@ const GraphPage = () => {
               linkWidth={link => (link.strength || 0.5) * 3}
               // Enhanced force simulation parameters for better physics
               nodeRepulsion={d => {
-                const baseSize = d.normalizedSize || 15;
-                // Strong repulsion but not so strong it prevents dragging
-                // Reduced from 800 to allow more natural movement
-                return -baseSize * 500;
+                const baseSize = d.normalizedSize || (d.type === 'bill' ? 45 : 18);
+                // Extremely strong repulsion for bills to create whitespace around them
+                // Congressmen have moderate repulsion
+                const repulsionMultiplier = d.type === 'bill' ? 30000 : 4000;
+                return -baseSize * repulsionMultiplier;
               }}
               linkDistance={link => {
                 const sourceNode = typeof link.source === 'object' ? link.source : filteredData.nodes.find(n => n.id === link.source);
                 const targetNode = typeof link.target === 'object' ? link.target : filteredData.nodes.find(n => n.id === link.target);
-                const sourceSize = sourceNode?.normalizedSize || 15;
-                const targetSize = targetNode?.normalizedSize || 15;
-                // Minimum distance is sum of radii + padding
-                return (sourceSize + targetSize) * 2.5 + 120;
+                const sourceSize = sourceNode?.normalizedSize || (sourceNode?.type === 'bill' ? 45 : 18);
+                const targetSize = targetNode?.normalizedSize || (targetNode?.type === 'bill' ? 45 : 18);
+                // Very large distance between connected nodes - prevents clustering
+                // If a bill is involved, add extra distance to create whitespace
+                const sourceIsBill = sourceNode?.type === 'bill';
+                const targetIsBill = targetNode?.type === 'bill';
+                const extraDistance = (sourceIsBill || targetIsBill) ? 1000 : 0;
+                return (sourceSize + targetSize) * 8 + 800 + extraDistance;
               }}
               linkStrength={link => {
-                // Lighter link strength so nodes can be dragged without snapping back
-                return (link.strength || 0.5) * 0.2;
+                // Extremely weak link strength (gravity) - minimal pull between nodes
+                return (link.strength || 0.5) * 0.01;
               }}
-              // Add many-body force for better spacing
-              warmupTicks={100}
-              cooldownTicks={200}
+              // Add many-body force for better spacing - more iterations for better layout
+              warmupTicks={150}
+              cooldownTicks={300}
               // Enable node dragging - keep nodes where user drags them
               onNodeDrag={node => {
                 if (node) {
@@ -676,7 +719,7 @@ const GraphPage = () => {
               }}
               nodeCanvasObject={(node, ctx, globalScale) => {
                 const label = getNodeLabel(node);
-                const size = node.normalizedSize || 15;
+                const size = node.normalizedSize || (node.type === 'bill' ? 45 : 18);
                 
                 // Determine if this node is connected to hovered node
                 const isConnected = hoveredNode && hoveredNode.id !== node.id && 
@@ -715,18 +758,22 @@ const GraphPage = () => {
                   ctx.stroke();
                 }
                 
-                // Draw label
-                if (globalScale > 1.5) {
-                  ctx.fillStyle = isHovered ? '#000000' : '#333333';
-                  ctx.font = `bold ${Math.max(10, size / 2)}px Arial`;
-                  ctx.textAlign = 'center';
-                  ctx.textBaseline = 'middle';
-                  ctx.fillText(label, node.x, node.y + size + 12);
-                }
+                // Draw label inside the circle - always visible
+                ctx.fillStyle = '#000000';
+                // Calculate font size based on node size - fit text inside circle
+                // With larger nodes, can show more characters
+                const maxLabelLength = Math.floor(size / 2.5);
+                const displayLabel = label.length > maxLabelLength ? label.substring(0, maxLabelLength) + '...' : label;
+                const fontSize = Math.max(8, Math.min(14, size / 3.5));
+                ctx.font = `bold ${fontSize}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                // Center text inside the circle
+                ctx.fillText(displayLabel, node.x, node.y);
               }}
               nodePointerAreaPaint={(node, color, ctx) => {
                 // Define the interactive area for hover and drag detection
-                const size = node.normalizedSize || 15;
+                const size = node.normalizedSize || (node.type === 'bill' ? 45 : 18);
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, size + 5, 0, 2 * Math.PI, false);
@@ -760,58 +807,58 @@ const GraphPage = () => {
                 // Graph settled - allow more iterations for better layout
               }}
             />
-            
-            {/* Hover Tooltip */}
-            {hoveredNode && (
-              <div 
-                className="absolute top-4 right-4 z-10 animate-fade-in"
-                style={{
-                  pointerEvents: 'auto'
-                }}
-              >
-                {getNodeDetails(hoveredNode)}
-              </div>
-            )}
-
-            {/* Selected Node Details */}
-            {selectedNode && !hoveredNode && (
-              <div 
-                className="absolute top-4 right-4 z-10 animate-fade-in"
-                style={{
-                  pointerEvents: 'auto'
-                }}
-              >
-                {getNodeDetails(selectedNode)}
-              </div>
-            )}
           </div>
+            
+          {/* Hover Tooltip */}
+          {hoveredNode && (
+            <div 
+              className="absolute top-4 right-4 z-20 animate-fade-in overflow-x-hidden"
+              style={{
+                pointerEvents: 'auto'
+              }}
+            >
+              {getNodeDetails(hoveredNode)}
+            </div>
+          )}
+
+          {/* Selected Node Details */}
+          {selectedNode && !hoveredNode && (
+            <div 
+              className="absolute top-4 right-4 z-20 animate-fade-in overflow-x-hidden"
+              style={{
+                pointerEvents: 'auto'
+              }}
+            >
+              {getNodeDetails(selectedNode)}
+            </div>
+          )}
 
           {/* Legend */}
-          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-4 shadow-lg border border-gray-200 z-10">
-            <div className="text-xs font-semibold text-gray-700 mb-2">Legend</div>
+          <div className="absolute bottom-4 left-4 bg-white p-4 border border-black z-20">
+            <div className="text-xs font-semibold text-gray-900 mb-2">Legend</div>
             <div className="space-y-1.5 text-xs">
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: nodeColors.congressman.Democratic }}></div>
-                <span className="text-gray-600">Democratic</span>
+                <div className="w-4 h-4 border border-black" style={{ backgroundColor: nodeColors.congressman.Democratic }}></div>
+                <span className="text-gray-900">Democratic</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: nodeColors.congressman.Republican }}></div>
-                <span className="text-gray-600">Republican</span>
+                <div className="w-4 h-4 border border-black" style={{ backgroundColor: nodeColors.congressman.Republican }}></div>
+                <span className="text-gray-900">Republican</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-gresearch-yellow"></div>
-                <span className="text-gray-600">Bills</span>
+                <div className="w-4 h-4 border border-black bg-gresearch-yellow"></div>
+                <span className="text-gray-900">Bills</span>
               </div>
-              <div className="pt-2 border-t border-gray-200 mt-2">
-                <div className="text-gray-500 text-xs">Nodes: {filteredData.nodes.length} | Links: {filteredData.links.length}</div>
-                <div className="text-gray-500 text-xs mt-1">Size = Activity/Support</div>
+              <div className="pt-2 border-t border-black mt-2">
+                <div className="text-gray-900 text-xs">Nodes: {filteredData.nodes.length} | Links: {filteredData.links.length}</div>
+                <div className="text-gray-900 text-xs mt-1">Size = Activity/Support</div>
               </div>
             </div>
           </div>
 
           {/* Instructions */}
-          <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-gray-200 z-10">
-            <div className="text-xs text-gray-600 space-y-1">
+          <div className="absolute bottom-4 right-4 bg-white p-3 z-20">
+            <div className="text-xs text-gray-900 space-y-1">
               <div>• Hover over nodes for details</div>
               <div>• Click to select</div>
               <div>• Drag nodes to rearrange (stays in place)</div>
@@ -819,7 +866,6 @@ const GraphPage = () => {
             </div>
           </div>
         </div>
-      </Container>
       </div>
     </div>
   );

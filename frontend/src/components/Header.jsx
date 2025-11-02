@@ -14,7 +14,7 @@ export default function Header() {
               <span className="text-black text-xl">I</span>
             </div>
             {/* TRADER text */}
-            <span className="text-xl tracking-tight">TRADER</span>
+            <span className="text-xl tracking-tight">TRACKER</span>
           </div>
         </Link>
 
